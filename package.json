@@ -4,10 +4,11 @@
   "description": "Your studio for AI-assisted development",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build",
-    "preview": "vite preview",
-    "tauri": "tauri"
+    "dev": "vite dev --port 1420 --host",
+    "tauri": "tauri dev",
+    "build": "vite build",
+    "build:tauri": "tauri build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
