@@ -1,0 +1,39 @@
+[package]
+name = "ateliercode"
+version = "0.1.0"
+description = "Your studio for AI-assisted development"
+authors = ["Jariah"]
+license = "MIT"
+repository = "https://github.com/jariahh/ateliercode"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+
+# File System
+notify = "6.0"
+walkdir = "2.4"
+ignore = "0.4"
+
+# Process Management
+which = "5.0"
+regex = "1.10"
+
+[features]
+# This feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
