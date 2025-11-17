@@ -23,6 +23,16 @@ const themes: { value: Theme; label: string; description: string }[] = [
 export default function ThemeSelector() {
   const { theme, setTheme } = useThemeStore();
 
+  const handleThemeChange = (newTheme: Theme) => {
+    console.log('[ThemeSelector] Theme button clicked:', newTheme);
+    setTheme(newTheme);
+    // Close the dropdown by removing focus
+    const activeElement = document.activeElement as HTMLElement;
+    if (activeElement) {
+      activeElement.blur();
+    }
+  };
+
   return (
     <div className="dropdown dropdown-top dropdown-end">
       <div tabIndex={0} role="button" className="btn btn-ghost btn-sm gap-2">
@@ -40,7 +50,7 @@ export default function ThemeSelector() {
           {themes.map((t) => (
             <button
               key={t.value}
-              onClick={() => setTheme(t.value)}
+              onClick={() => handleThemeChange(t.value)}
               className={`btn btn-sm justify-start ${
                 theme === t.value ? "btn-primary" : "btn-ghost"
               }`}

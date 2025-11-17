@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div class="min-h-screen bg-base-100 text-base-content p-8">
+        <h1 class="text-4xl font-bold mb-8">Theme Selector Test</h1>
+
+        <div class="card bg-base-200 p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Current Theme Information</h2>
+            <div class="space-y-2">
+                <p><strong>data-theme attribute:</strong> <code id="current-theme" class="bg-base-300 px-2 py-1 rounded">-</code></p>
+                <p><strong>localStorage value:</strong> <code id="localstorage-value" class="bg-base-300 px-2 py-1 rounded">-</code></p>
+            </div>
+        </div>
+
+        <div class="card bg-base-200 p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Theme Selector</h2>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="setTheme('light')" class="btn btn-sm">Light</button>
+                <button onclick="setTheme('dark')" class="btn btn-sm">Dark</button>
+                <button onclick="setTheme('cupcake')" class="btn btn-sm">Cupcake</button>
+                <button onclick="setTheme('cyberpunk')" class="btn btn-sm">Cyberpunk</button>
+                <button onclick="setTheme('synthwave')" class="btn btn-sm">Synthwave</button>
+                <button onclick="setTheme('forest')" class="btn btn-sm">Forest</button>
+                <button onclick="setTheme('lofi')" class="btn btn-sm">Lofi</button>
+                <button onclick="setTheme('dracula')" class="btn btn-sm">Dracula</button>
+                <button onclick="setTheme('bumblebee')" class="btn btn-sm">Bumblebee</button>
+                <button onclick="setTheme('emerald')" class="btn btn-sm">Emerald</button>
+                <button onclick="setTheme('corporate')" class="btn btn-sm">Corporate</button>
+                <button onclick="setTheme('retro')" class="btn btn-sm">Retro</button>
+                <button onclick="setTheme('valentine')" class="btn btn-sm">Valentine</button>
+                <button onclick="setTheme('aqua')" class="btn btn-sm">Aqua</button>
+                <button onclick="setTheme('night')" class="btn btn-sm">Night</button>
+                <button onclick="setTheme('coffee')" class="btn btn-sm">Coffee</button>
+            </div>
+        </div>
+
+        <div class="card bg-base-200 p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">DaisyUI Component Samples</h2>
+            <div class="space-y-4">
+                <div class="flex gap-2">
+                    <button class="btn btn-primary">Primary</button>
+                    <button class="btn btn-secondary">Secondary</button>
+                    <button class="btn btn-accent">Accent</button>
+                    <button class="btn btn-ghost">Ghost</button>
+                </div>
+                <div class="alert alert-info">
+                    <span>This is an info alert</span>
+                </div>
+                <progress class="progress progress-primary w-full" value="70" max="100"></progress>
+            </div>
+        </div>
+
+        <div class="card bg-base-200 p-6">
+            <h2 class="text-2xl font-semibold mb-4">Console Commands</h2>
+            <div class="mockup-code">
+                <pre data-prefix="$"><code>document.documentElement.getAttribute('data-theme')</code></pre>
+                <pre data-prefix="$"><code>document.documentElement.setAttribute('data-theme', 'cyberpunk')</code></pre>
+                <pre data-prefix="$"><code>localStorage.getItem('ateliercode-theme')</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function setTheme(theme) {
+            console.log('Setting theme to:', theme);
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('test-theme', theme);
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'none';
+            const localStorageValue = localStorage.getItem('test-theme') || 'none';
+
+            document.getElementById('current-theme').textContent = currentTheme;
+            document.getElementById('localstorage-value').textContent = localStorageValue;
+        }
+
+        // Initialize
+        const savedTheme = localStorage.getItem('test-theme');
+        if (savedTheme) {
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        } else {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+        updateDisplay();
+
+        // Update display every second
+        setInterval(updateDisplay, 1000);
+    </script>
+</body>
+</html>

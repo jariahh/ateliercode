@@ -55,8 +55,8 @@ export default function StatsPanel({
                 <div className="stat-figure">
                   <Icon className={`w-6 h-6 ${stat.color}`} />
                 </div>
-                <div className="stat-title text-xs">{stat.label}</div>
-                <div className="stat-value text-2xl">{stat.value}</div>
+                <div className="stat-title text-xs text-base-content/70">{stat.label}</div>
+                <div className="stat-value text-2xl text-base-content">{stat.value}</div>
               </div>
             );
           })}
@@ -66,7 +66,7 @@ export default function StatsPanel({
           <div className="mt-4">
             <div className="flex justify-between text-sm mb-1">
               <span className="text-base-content/60">Progress</span>
-              <span className="font-semibold">
+              <span className="font-semibold text-base-content">
                 {Math.round((tasksCompleted / tasksTotal) * 100)}%
               </span>
             </div>

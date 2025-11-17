@@ -73,14 +73,14 @@ export default function ActivityStream({ activities }: ActivityStreamProps) {
               return (
                 <div
                   key={activity.id}
-                  className="flex gap-3 p-3 rounded-lg bg-base-300 hover:bg-base-300/70 transition-colors"
+                  className="flex gap-3 p-3 rounded-lg bg-base-300 hover:bg-base-100/50 transition-colors"
                 >
                   <div className={`rounded-full ${config.bgColor} p-2 h-fit`}>
                     <Icon className={`w-4 h-4 ${config.color}`} />
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">{activity.title}</div>
+                    <div className="font-medium text-sm text-base-content">{activity.title}</div>
                     {activity.description && (
                       <div className="text-xs text-base-content/60 mt-1 truncate">
                         {activity.description}
