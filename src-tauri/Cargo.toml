@@ -38,6 +38,11 @@ ignore = "0.4"
 which = "5.0"
 regex = "1.10"
 
+# AI Integration
+reqwest = { version = "0.11", features = ["json"] }
+futures = "0.3"
+async-trait = "0.1"
+
 [features]
 # This feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!

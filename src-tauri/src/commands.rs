@@ -778,8 +778,15 @@ pub async fn send_message(
 
     log::info!("User message saved: {}", user_message.id);
 
-    // Generate mock AI response
-    let response_content = generate_mock_response(&content);
+    // Generate AI response using AI service
+    let response_content = match generate_ai_response(&content).await {
+        Ok(response) => response,
+        Err(e) => {
+            log::error!("AI service error: {}", e);
+            // Fallback to mock response if AI service fails
+            generate_mock_response(&content)
+        }
+    };
     let ai_message = ChatMessage::new(project_id.clone(), "assistant".to_string(), response_content);
 
     sqlx::query(
@@ -851,7 +858,34 @@ pub async fn get_messages(
     Ok(messages)
 }
 
-/// Generate a mock AI response (placeholder until real AI integration)
+/// Generate AI response using the AI service
+async fn generate_ai_response(user_input: &str) -> Result<String, String> {
+    use crate::ai_service::{AIService, ChatMessage};
+
+    // Create AI service (defaults to Claude from environment)
+    let ai_service = AIService::from_env();
+
+    // Check if the AI provider is available
+    if !ai_service.is_available() {
+        return Err(format!(
+            "{} CLI not found. Falling back to mock response.",
+            ai_service.provider_name()
+        ));
+    }
+
+    log::info!("Using {} for AI response", ai_service.provider_name());
+
+    // Create message for the AI
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: user_input.to_string(),
+    }];
+
+    // Call the AI service
+    ai_service.chat_completion(messages).await
+}
+
+/// Generate a mock AI response (fallback when AI service is unavailable)
 fn generate_mock_response(user_input: &str) -> String {
     let input_lower = user_input.to_lowercase();
 
