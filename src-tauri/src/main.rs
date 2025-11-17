@@ -5,6 +5,7 @@ mod agents;
 mod commands;
 mod db;
 mod models;
+mod project_analyzer;
 mod types;
 
 use tauri::Manager;
@@ -32,6 +33,7 @@ fn main() {
             commands::delete_project,
             commands::detect_agents,
             commands::select_folder,
+            commands::analyze_project_directory,
             commands::create_task,
             commands::get_tasks,
             commands::update_task,
@@ -41,6 +43,9 @@ fn main() {
             commands::read_file_content,
             commands::send_message,
             commands::get_messages,
+            commands::log_activity,
+            commands::get_activities,
+            commands::get_project_stats,
         ])
         .setup(|app| {
             // Initialize database

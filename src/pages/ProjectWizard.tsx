@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Sparkles, FolderOpen, Loader2 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { useProjectStore } from '../stores/projectStore';
 import type { AgentType, CreateProjectInput } from '../types/project';
+import type { ProjectAnalysisResult } from '../types/tauri';
 import AgentSelector from '../components/AgentSelector';
 import FolderPicker from '../components/FolderPicker';
 
@@ -33,15 +35,6 @@ const EXISTING_PROJECT_STEPS = [
   { id: 4, label: 'Review', description: 'Confirm and create' },
 ];
 
-interface AIAnalysisResult {
-  suggestedName: string;
-  suggestedDescription: string;
-  detectedLanguages: string[];
-  detectedFrameworks: string[];
-  fileCount: number;
-  hasGit: boolean;
-}
-
 export default function ProjectWizard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -61,7 +54,7 @@ export default function ProjectWizard() {
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<ProjectAnalysisResult | null>(null);
 
   const updateFormData = (field: keyof FormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -137,30 +130,28 @@ export default function ProjectWizard() {
     setIsAnalyzing(true);
 
     try {
-      // Simulate AI analysis (in production, this would call the AI agent)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Call the real Tauri command to analyze the project
+      const analysis = await invoke<ProjectAnalysisResult>('analyze_project_directory', {
+        path: formData.path,
+      });
 
-      // Mock AI analysis result
-      const pathParts = formData.path.split(/[/\\]/);
-      const folderName = pathParts[pathParts.length - 1] || 'my-project';
-
-      const mockAnalysis: AIAnalysisResult = {
-        suggestedName: folderName,
-        suggestedDescription: `A ${formData.agentType || 'code'} project with modern architecture and best practices. This project appears to be well-structured and ready for AI-assisted development.`,
-        detectedLanguages: ['TypeScript', 'JavaScript', 'CSS'],
-        detectedFrameworks: ['React', 'Vite', 'Tailwind CSS'],
-        fileCount: 42,
-        hasGit: true,
-      };
-
-      setAiAnalysis(mockAnalysis);
+      setAiAnalysis(analysis);
 
       // Auto-fill form with AI suggestions
-      updateFormData('name', mockAnalysis.suggestedName);
-      updateFormData('description', mockAnalysis.suggestedDescription);
-      updateFormData('initGit', !mockAnalysis.hasGit); // Only init if doesn't have git
+      updateFormData('name', analysis.suggested_name);
+      updateFormData('description', analysis.suggested_description);
+      updateFormData('initGit', !analysis.has_git); // Only init if doesn't have git
     } catch (error) {
       console.error('Failed to analyze project:', error);
+      // Show a generic error but continue - user can still fill manually
+      setAiAnalysis({
+        suggested_name: formData.path.split(/[/\\]/).pop() || 'my-project',
+        suggested_description: 'Unable to analyze project automatically. Please fill in the details manually.',
+        detected_languages: [],
+        detected_frameworks: [],
+        file_count: 0,
+        has_git: false,
+      });
     } finally {
       setIsAnalyzing(false);
     }
@@ -313,11 +304,11 @@ export default function ProjectWizard() {
                       <div className="grid grid-cols-2 gap-4 mb-4">
                         <div className="stat bg-base-300 rounded-lg p-4">
                           <div className="stat-title text-xs">Files Found</div>
-                          <div className="stat-value text-2xl">{aiAnalysis.fileCount}</div>
+                          <div className="stat-value text-2xl">{aiAnalysis.file_count}</div>
                         </div>
                         <div className="stat bg-base-300 rounded-lg p-4">
                           <div className="stat-title text-xs">Git Repository</div>
-                          <div className="stat-value text-2xl">{aiAnalysis.hasGit ? '✓' : '✗'}</div>
+                          <div className="stat-value text-2xl">{aiAnalysis.has_git ? '✓' : '✗'}</div>
                         </div>
                       </div>
 
@@ -325,7 +316,7 @@ export default function ProjectWizard() {
                         <div>
                           <div className="text-sm text-base-content/60 mb-2">Detected Languages</div>
                           <div className="flex flex-wrap gap-2">
-                            {aiAnalysis.detectedLanguages.map(lang => (
+                            {aiAnalysis.detected_languages.map(lang => (
                               <div key={lang} className="badge badge-primary">{lang}</div>
                             ))}
                           </div>
@@ -334,7 +325,7 @@ export default function ProjectWizard() {
                         <div>
                           <div className="text-sm text-base-content/60 mb-2">Detected Frameworks</div>
                           <div className="flex flex-wrap gap-2">
-                            {aiAnalysis.detectedFrameworks.map(fw => (
+                            {aiAnalysis.detected_frameworks.map(fw => (
                               <div key={fw} className="badge badge-secondary">{fw}</div>
                             ))}
                           </div>
@@ -422,7 +413,7 @@ export default function ProjectWizard() {
                       </div>
                     </div>
 
-                    {!aiAnalysis?.hasGit && (
+                    {!aiAnalysis?.has_git && (
                       <>
                         <div className="divider my-2"></div>
                         <div className="form-control">

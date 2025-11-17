@@ -143,8 +143,9 @@ export default function Workspace() {
 
       {/* Tab Content */}
       <div className="container mx-auto p-8">
-        {activeTab === 'overview' && (
+        {activeTab === 'overview' && id && (
           <OverviewTab
+            projectId={id}
             agentType={project.agent.type}
             projectPath={project.path}
           />

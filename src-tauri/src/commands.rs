@@ -8,8 +8,9 @@ use ignore::WalkBuilder;
 
 use crate::agents;
 use crate::db::Database;
-use crate::models::{Project, ChatMessage, Task};
-use crate::types::{AgentInfo, CreateProjectInput, UpdateProjectInput, CreateTaskInput, UpdateTaskInput};
+use crate::models::{Project, ChatMessage, Task, ActivityLog};
+use crate::project_analyzer;
+use crate::types::{AgentInfo, CreateProjectInput, UpdateProjectInput, CreateTaskInput, UpdateTaskInput, ProjectStats, ProjectAnalysisResult};
 
 /// Create a new project
 #[tauri::command]
@@ -346,6 +347,9 @@ pub async fn update_task(
     .map_err(|e| format!("Failed to fetch task: {}", e))?
     .ok_or_else(|| format!("Task not found: {}", task_id))?;
 
+    // Track if task is being completed for activity logging
+    let mut task_completed = false;
+
     // Apply updates
     if let Some(title) = updates.title {
         task.title = title;
@@ -362,6 +366,7 @@ pub async fn update_task(
             task.started_at = Some(chrono::Utc::now().timestamp());
         } else if status == "completed" && task.completed_at.is_none() {
             task.completed_at = Some(chrono::Utc::now().timestamp());
+            task_completed = true;
         }
         task.status = status;
     }
@@ -403,6 +408,21 @@ pub async fn update_task(
     .map_err(|e| format!("Failed to update task: {}", e))?;
 
     log::info!("Task updated successfully: {}", task_id);
+
+    // Log activity if task was completed
+    if task_completed {
+        let _ = log_activity(
+            db,
+            task.project_id.clone(),
+            "task_complete".to_string(),
+            format!("Task completed: {}", task.title),
+            Some(serde_json::json!({
+                "task_id": task.id,
+                "title": task.title
+            }).to_string()),
+        ).await;
+    }
+
     Ok(task)
 }
 
@@ -540,6 +560,30 @@ pub async fn read_project_files(
     });
 
     log::info!("Successfully read {} items from project root", root_nodes.len());
+
+    // Check if this is the first time reading files for this project
+    // by checking if there are any file_change activity logs
+    let activity_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM activity_log WHERE project_id = ? AND event_type = 'file_change'"
+    )
+    .bind(&project_id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap_or(0);
+
+    // Log activity only on first read
+    if activity_count == 0 && !root_nodes.is_empty() {
+        let _ = log_activity(
+            db,
+            project_id,
+            "file_change".to_string(),
+            format!("Project files loaded ({} items)", root_nodes.len()),
+            Some(serde_json::json!({
+                "file_count": root_nodes.len()
+            }).to_string()),
+        ).await;
+    }
+
     Ok(root_nodes)
 }
 
@@ -765,6 +809,21 @@ pub async fn send_message(
         .await
         .map_err(|e| format!("Failed to update project activity: {}", e))?;
 
+    // Log activity for the message
+    let _ = log_activity(
+        db,
+        project_id,
+        "message".to_string(),
+        "New message sent".to_string(),
+        Some(serde_json::json!({
+            "preview": if content.len() > 50 {
+                format!("{}...", &content[..50])
+            } else {
+                content.clone()
+            }
+        }).to_string()),
+    ).await;
+
     Ok(ai_message)
 }
 
@@ -820,6 +879,256 @@ fn generate_mock_response(user_input: &str) -> String {
         "I understand you're asking about: \"{}\"\n\nI'm a mock assistant for now, but in the full version, I'll provide detailed, context-aware responses to help with your coding tasks. This integration is working correctly - your messages are being saved to the database!\n\nIs there anything specific you'd like to know about this project?",
         user_input
     )
+}
+
+// ============================================================================
+// Activity Logging Commands
+// ============================================================================
+
+/// Log an activity event
+#[tauri::command]
+pub async fn log_activity(
+    db: State<'_, Database>,
+    project_id: String,
+    event_type: String,
+    description: String,
+    data: Option<String>,
+) -> Result<ActivityLog, String> {
+    log::info!("Logging activity for project {}: {} - {}", project_id, event_type, description);
+
+    // Verify project exists
+    get_project(db.clone(), project_id.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+
+    // Create activity log entry
+    let mut activity = ActivityLog::new(
+        project_id.clone(),
+        None, // session_id not required for now
+        event_type,
+        description,
+    );
+
+    // Set optional data
+    if let Some(data_value) = data {
+        activity.data = Some(data_value);
+    }
+
+    // Insert into database
+    sqlx::query(
+        r#"
+        INSERT INTO activity_log (id, project_id, session_id, event_type, description, data, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        "#
+    )
+    .bind(&activity.id)
+    .bind(&activity.project_id)
+    .bind(&activity.session_id)
+    .bind(&activity.event_type)
+    .bind(&activity.description)
+    .bind(&activity.data)
+    .bind(activity.timestamp)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to log activity: {}", e))?;
+
+    // Update project last_activity timestamp
+    sqlx::query("UPDATE projects SET last_activity = ? WHERE id = ?")
+        .bind(activity.timestamp)
+        .bind(&project_id)
+        .execute(db.pool())
+        .await
+        .map_err(|e| format!("Failed to update project activity: {}", e))?;
+
+    log::info!("Activity logged successfully: {}", activity.id);
+    Ok(activity)
+}
+
+/// Get recent activities for a project
+#[tauri::command]
+pub async fn get_activities(
+    db: State<'_, Database>,
+    project_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<ActivityLog>, String> {
+    log::info!("Fetching activities for project: {}", project_id);
+
+    let limit_value = limit.unwrap_or(50).min(100); // Default 50, max 100
+
+    let activities = sqlx::query_as::<_, ActivityLog>(
+        r#"
+        SELECT id, project_id, session_id, event_type, description, data, timestamp
+        FROM activity_log
+        WHERE project_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        "#
+    )
+    .bind(&project_id)
+    .bind(limit_value)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch activities: {}", e))?;
+
+    log::info!("Fetched {} activities for project {}", activities.len(), project_id);
+    Ok(activities)
+}
+
+/// Analyze an existing project directory
+#[tauri::command]
+pub async fn analyze_project_directory(path: String) -> Result<ProjectAnalysisResult, String> {
+    log::info!("Analyzing project directory: {}", path);
+
+    // Run analysis in a blocking task since it's CPU-intensive
+    let result = tokio::task::spawn_blocking(move || {
+        project_analyzer::analyze_project(&path)
+    })
+    .await
+    .map_err(|e| format!("Failed to spawn analysis task: {}", e))?;
+
+    match result {
+        Ok(analysis) => {
+            log::info!(
+                "Project analysis complete: {} files, {} languages, {} frameworks",
+                analysis.file_count,
+                analysis.detected_languages.len(),
+                analysis.detected_frameworks.len()
+            );
+            Ok(analysis)
+        }
+        Err(e) => {
+            log::error!("Project analysis failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
+// ============================================================================
+// Statistics Commands
+// ============================================================================
+
+/// Get project statistics
+#[tauri::command]
+pub async fn get_project_stats(
+    db: State<'_, Database>,
+    project_id: String,
+) -> Result<ProjectStats, String> {
+    log::info!("Fetching stats for project: {}", project_id);
+
+    // Verify project exists
+    let project = get_project(db.clone(), project_id.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+
+    // Count distinct files changed
+    let files_changed_result = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(DISTINCT file_path)
+        FROM file_changes
+        WHERE project_id = ?
+        "#
+    )
+    .bind(&project_id)
+    .fetch_one(db.pool())
+    .await;
+
+    let files_changed = files_changed_result.unwrap_or(0) as usize;
+
+    // Count commits from git
+    let commits = count_git_commits(&project.root_path).await.unwrap_or(0);
+
+    // Count chat messages
+    let messages_result = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM chat_messages
+        WHERE project_id = ?
+        "#
+    )
+    .bind(&project_id)
+    .fetch_one(db.pool())
+    .await;
+
+    let messages = messages_result.unwrap_or(0) as usize;
+
+    // Count completed tasks
+    let tasks_completed_result = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM tasks
+        WHERE project_id = ? AND status = 'completed'
+        "#
+    )
+    .bind(&project_id)
+    .fetch_one(db.pool())
+    .await;
+
+    let tasks_completed = tasks_completed_result.unwrap_or(0) as usize;
+
+    // Count total tasks
+    let tasks_total_result = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM tasks
+        WHERE project_id = ?
+        "#
+    )
+    .bind(&project_id)
+    .fetch_one(db.pool())
+    .await;
+
+    let tasks_total = tasks_total_result.unwrap_or(0) as usize;
+
+    let stats = ProjectStats {
+        files_changed,
+        commits,
+        messages,
+        tasks_completed,
+        tasks_total,
+    };
+
+    log::info!("Project stats: {:?}", stats);
+    Ok(stats)
+}
+
+/// Count commits in a git repository
+async fn count_git_commits(path: &str) -> Result<usize> {
+    use std::process::Command;
+
+    log::debug!("Counting git commits in: {}", path);
+
+    // Check if git is available and the path is a git repository
+    let check_output = Command::new("git")
+        .args(&["rev-parse", "--git-dir"])
+        .current_dir(path)
+        .output();
+
+    match check_output {
+        Ok(output) if output.status.success() => {
+            // It's a git repo, count commits
+            let count_output = Command::new("git")
+                .args(&["rev-list", "--count", "HEAD"])
+                .current_dir(path)
+                .output()
+                .context("Failed to execute git rev-list")?;
+
+            if count_output.status.success() {
+                let count_str = String::from_utf8_lossy(&count_output.stdout);
+                let count = count_str.trim().parse::<usize>().unwrap_or(0);
+                log::debug!("Found {} commits", count);
+                Ok(count)
+            } else {
+                // No commits yet (empty repository)
+                log::debug!("Empty git repository (no commits)");
+                Ok(0)
+            }
+        }
+        _ => {
+            // Not a git repository or git not available
+            log::debug!("Not a git repository or git not available");
+            Ok(0)
+        }
+    }
 }
 
 #[cfg(test)]

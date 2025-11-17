@@ -63,3 +63,24 @@ pub struct UpdateTaskInput {
     pub files_affected: Option<String>,
     pub depends_on: Option<String>,
 }
+
+/// Project statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectStats {
+    pub files_changed: usize,
+    pub commits: usize,
+    pub messages: usize,
+    pub tasks_completed: usize,
+    pub tasks_total: usize,
+}
+
+/// Result of project analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectAnalysisResult {
+    pub suggested_name: String,
+    pub suggested_description: String,
+    pub detected_languages: Vec<String>,
+    pub detected_frameworks: Vec<String>,
+    pub file_count: usize,
+    pub has_git: bool,
+}

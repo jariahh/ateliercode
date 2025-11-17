@@ -80,6 +80,33 @@ export interface ChatMessage {
   metadata: string | null;
 }
 
+export interface ActivityLog {
+  id: string;
+  project_id: string;
+  session_id: string | null;
+  event_type: string;
+  description: string;
+  data: string | null;
+  timestamp: number;
+}
+
+export interface ProjectStats {
+  files_changed: number;
+  commits: number;
+  messages: number;
+  tasks_completed: number;
+  tasks_total: number;
+}
+
+export interface ProjectAnalysisResult {
+  suggested_name: string;
+  suggested_description: string;
+  detected_languages: string[];
+  detected_frameworks: string[];
+  file_count: number;
+  has_git: boolean;
+}
+
 // Tauri command wrapper types
 export interface TauriCommands {
   create_project: (input: CreateProjectInput) => Promise<Project>;
@@ -89,6 +116,7 @@ export interface TauriCommands {
   delete_project: (id: string) => Promise<boolean>;
   detect_agents: () => Promise<AgentInfo[]>;
   select_folder: () => Promise<string | null>;
+  analyze_project_directory: (path: string) => Promise<ProjectAnalysisResult>;
   create_task: (input: CreateTaskInput) => Promise<Task>;
   get_tasks: (project_id: string) => Promise<Task[]>;
   update_task: (task_id: string, updates: UpdateTaskInput) => Promise<Task>;
