@@ -28,7 +28,14 @@ export default function Home() {
         <div className="flex-1">
           <a className="btn btn-ghost text-xl">AtelierCode</a>
         </div>
-        <div className="flex-none">
+        <div className="flex-none gap-2 flex">
+          <button
+            onClick={() => navigate('/wizard?mode=existing')}
+            className="btn btn-ghost gap-2"
+          >
+            <Folder className="w-4 h-4" />
+            Add Existing
+          </button>
           <button
             onClick={() => navigate('/wizard')}
             className="btn btn-primary gap-2"

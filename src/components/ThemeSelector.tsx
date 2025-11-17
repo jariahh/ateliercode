@@ -24,14 +24,14 @@ export default function ThemeSelector() {
   const { theme, setTheme } = useThemeStore();
 
   return (
-    <div className="dropdown dropdown-end">
+    <div className="dropdown dropdown-top dropdown-end">
       <div tabIndex={0} role="button" className="btn btn-ghost btn-sm gap-2">
         <Palette className="w-4 h-4" />
         <span className="hidden sm:inline">Theme</span>
       </div>
       <div
         tabIndex={0}
-        className="dropdown-content z-[1] menu p-2 shadow-lg bg-base-200 rounded-box w-72 max-h-96 overflow-y-auto mt-2"
+        className="dropdown-content z-[1] menu p-2 shadow-lg bg-base-200 rounded-box w-72 max-h-96 overflow-y-auto mb-2"
       >
         <div className="px-3 py-2 text-xs font-semibold text-base-content/70 uppercase">
           Choose Theme
