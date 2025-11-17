@@ -26,21 +26,21 @@ const getFileIcon = (fileName: string) => {
     case 'tsx':
     case 'js':
     case 'jsx':
-      return <FileCode className="w-4 h-4 text-blue-500" />;
+      return <FileCode className="w-4 h-4 text-primary" />;
     case 'json':
-      return <FileJson className="w-4 h-4 text-yellow-500" />;
+      return <FileJson className="w-4 h-4 text-warning" />;
     case 'md':
     case 'txt':
-      return <FileText className="w-4 h-4 text-gray-500" />;
+      return <FileText className="w-4 h-4 text-base-content/50" />;
     case 'png':
     case 'jpg':
     case 'jpeg':
     case 'gif':
     case 'svg':
-      return <FileImage className="w-4 h-4 text-purple-500" />;
+      return <FileImage className="w-4 h-4 text-secondary" />;
     case 'html':
     case 'css':
-      return <FileType className="w-4 h-4 text-orange-500" />;
+      return <FileType className="w-4 h-4 text-accent" />;
     default:
       return <File className="w-4 h-4 text-base-content/50" />;
   }
@@ -153,9 +153,9 @@ function FileTreeItem({
         <span className="flex-shrink-0">
           {isFolder ? (
             isExpanded ? (
-              <FolderOpen className="w-4 h-4 text-yellow-600" />
+              <FolderOpen className="w-4 h-4 text-warning" />
             ) : (
-              <Folder className="w-4 h-4 text-yellow-600" />
+              <Folder className="w-4 h-4 text-warning" />
             )
           ) : (
             getFileIcon(node.name)
