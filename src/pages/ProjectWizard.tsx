@@ -130,8 +130,8 @@ export default function ProjectWizard() {
     setIsAnalyzing(true);
 
     try {
-      // Call the real Tauri command to analyze the project
-      const analysis = await invoke<ProjectAnalysisResult>('analyze_project_directory', {
+      // Call the AI-powered analysis command
+      const analysis = await invoke<ProjectAnalysisResult>('analyze_project_with_ai', {
         path: formData.path,
       });
 
@@ -142,16 +142,28 @@ export default function ProjectWizard() {
       updateFormData('description', analysis.suggested_description);
       updateFormData('initGit', !analysis.has_git); // Only init if doesn't have git
     } catch (error) {
-      console.error('Failed to analyze project:', error);
-      // Show a generic error but continue - user can still fill manually
-      setAiAnalysis({
-        suggested_name: formData.path.split(/[/\\]/).pop() || 'my-project',
-        suggested_description: 'Unable to analyze project automatically. Please fill in the details manually.',
-        detected_languages: [],
-        detected_frameworks: [],
-        file_count: 0,
-        has_git: false,
-      });
+      console.error('Failed to analyze project with AI:', error);
+      // Fallback to basic analysis if AI fails
+      try {
+        const basicAnalysis = await invoke<ProjectAnalysisResult>('analyze_project_directory', {
+          path: formData.path,
+        });
+        setAiAnalysis(basicAnalysis);
+        updateFormData('name', basicAnalysis.suggested_name);
+        updateFormData('description', basicAnalysis.suggested_description);
+        updateFormData('initGit', !basicAnalysis.has_git);
+      } catch (fallbackError) {
+        console.error('Basic analysis also failed:', fallbackError);
+        // Show a generic error but continue - user can still fill manually
+        setAiAnalysis({
+          suggested_name: formData.path.split(/[/\\]/).pop() || 'my-project',
+          suggested_description: 'Unable to analyze project automatically. Please fill in the details manually.',
+          detected_languages: [],
+          detected_frameworks: [],
+          file_count: 0,
+          has_git: false,
+        });
+      }
     } finally {
       setIsAnalyzing(false);
     }

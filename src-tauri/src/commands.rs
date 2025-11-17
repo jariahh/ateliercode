@@ -1036,6 +1036,103 @@ pub async fn analyze_project_directory(path: String) -> Result<ProjectAnalysisRe
     }
 }
 
+/// Analyze project with AI to generate intelligent name and description
+#[tauri::command]
+pub async fn analyze_project_with_ai(path: String) -> Result<ProjectAnalysisResult, String> {
+    log::info!("Analyzing project with AI: {}", path);
+
+    // First, do the basic file-based analysis
+    let mut analysis = analyze_project_directory(path.clone()).await?;
+
+    // Check if AI service is available
+    use crate::ai_service::{AIService, ChatMessage};
+    let ai_service = AIService::from_env();
+
+    if !ai_service.is_available() {
+        log::warn!("AI service not available, using basic analysis only");
+        return Ok(analysis);
+    }
+
+    log::info!("AI service available, generating intelligent description");
+
+    // Build a context-rich prompt for the AI
+    let prompt = format!(
+        r#"Analyze this project directory and provide a concise name and description.
+
+Project Path: {}
+Files Found: {}
+Detected Languages: {}
+Detected Frameworks: {}
+Has Git: {}
+
+Based on the above information, please provide:
+1. A short, descriptive project name (3-5 words, use kebab-case)
+2. A brief description (1-2 sentences) explaining what this project does
+
+Format your response exactly as:
+NAME: your-project-name
+DESCRIPTION: Your project description here.
+
+Be concise and professional. Focus on what the project appears to do based on its tech stack."#,
+        path,
+        analysis.file_count,
+        analysis.detected_languages.join(", "),
+        analysis.detected_frameworks.join(", "),
+        if analysis.has_git { "Yes" } else { "No" }
+    );
+
+    // Call AI service
+    let messages = vec![ChatMessage {
+        role: "user".to_string(),
+        content: prompt,
+    }];
+
+    match ai_service.chat_completion(messages).await {
+        Ok(response) => {
+            log::info!("AI analysis complete");
+
+            // Parse the AI response
+            let lines: Vec<&str> = response.lines().collect();
+            for line in lines {
+                if let Some(name) = line.strip_prefix("NAME:") {
+                    analysis.suggested_name = name.trim().to_string();
+                } else if let Some(desc) = line.strip_prefix("DESCRIPTION:") {
+                    analysis.suggested_description = desc.trim().to_string();
+                }
+            }
+
+            // If parsing failed, use a fallback
+            if analysis.suggested_name.is_empty() {
+                log::warn!("Failed to parse AI name, using fallback");
+                analysis.suggested_name = path
+                    .split(&['/', '\\'][..])
+                    .last()
+                    .unwrap_or("my-project")
+                    .to_string();
+            }
+
+            if analysis.suggested_description.is_empty() {
+                log::warn!("Failed to parse AI description, using fallback");
+                analysis.suggested_description = format!(
+                    "A {} project using {}",
+                    analysis.detected_languages.first().unwrap_or(&"software".to_string()),
+                    analysis.detected_frameworks.first().unwrap_or(&"custom frameworks".to_string())
+                );
+            }
+
+            log::info!("AI suggested name: {}", analysis.suggested_name);
+            log::info!("AI suggested description: {}", analysis.suggested_description);
+
+            Ok(analysis)
+        }
+        Err(e) => {
+            log::error!("AI analysis failed: {}, using basic analysis", e);
+            // Still return the basic analysis on error
+            Ok(analysis)
+        }
+    }
+}
+
 // ============================================================================
 // Statistics Commands
 // ============================================================================
