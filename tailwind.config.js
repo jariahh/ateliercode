@@ -70,5 +70,12 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [require("tailwindcss-animate"), require("daisyui")],
+  daisyui: {
+    themes: ["light", "dark", "cupcake", "cyberpunk", "synthwave", "forest", "lofi", "dracula"],
+    darkTheme: "dark",
+    base: true,
+    styled: true,
+    utils: true,
+  },
 }
