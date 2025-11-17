@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Bot, Check, AlertCircle } from 'lucide-react';
-import type { AgentType } from '../types/project';
+import type { AgentType, AgentInfo } from '../types/project';
+import * as tauriApi from '../lib/tauri';
 
 interface AgentOption {
   type: AgentType;
@@ -16,39 +18,83 @@ interface AgentSelectorProps {
   error?: string;
 }
 
-const agents: AgentOption[] = [
-  {
-    type: 'claude-code',
-    name: 'Claude Code',
+// Static agent metadata
+const agentMetadata: Record<string, { displayName: string; description: string; icon: string; recommended?: boolean }> = {
+  'claude-code': {
+    displayName: 'Claude Code',
     description: 'Official Anthropic CLI for Claude. Best for complex coding tasks.',
     icon: '🤖',
-    installed: true,
     recommended: true,
   },
-  {
-    type: 'aider',
-    name: 'Aider',
+  'aider': {
+    displayName: 'Aider',
     description: 'AI pair programming in your terminal. Great for Git workflows.',
     icon: '🎯',
-    installed: false,
   },
-  {
-    type: 'github-copilot',
-    name: 'GitHub Copilot',
+  'github-copilot': {
+    displayName: 'GitHub Copilot',
     description: 'GitHub\'s AI assistant. Excellent for code completion.',
     icon: '🐙',
-    installed: false,
   },
-  {
-    type: 'cursor',
-    name: 'Cursor',
+  'cursor': {
+    displayName: 'Cursor',
     description: 'AI-first code editor with chat and inline editing.',
     icon: '✨',
-    installed: false,
   },
-];
+};
 
 export default function AgentSelector({ value, onChange, error }: AgentSelectorProps) {
+  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [isDetecting, setIsDetecting] = useState(true);
+
+  // Detect installed agents on mount
+  useEffect(() => {
+    const detectInstalledAgents = async () => {
+      setIsDetecting(true);
+
+      try {
+        const detectedAgents = await tauriApi.detectAgents();
+
+        // Map detected agents to AgentOption format
+        const agentOptions: AgentOption[] = detectedAgents.map((agent) => {
+          const metadata = agentMetadata[agent.name] || {
+            displayName: agent.name,
+            description: `Command: ${agent.command}`,
+            icon: '🔧',
+          };
+
+          return {
+            type: agent.name as AgentType,
+            name: metadata.displayName,
+            description: metadata.description,
+            icon: metadata.icon,
+            installed: agent.installed,
+            recommended: metadata.recommended,
+          };
+        });
+
+        setAgents(agentOptions);
+      } catch (err) {
+        console.error('Failed to detect agents:', err);
+
+        // Fallback: use default agents with unknown install status
+        const fallbackAgents: AgentOption[] = Object.entries(agentMetadata).map(([type, meta]) => ({
+          type: type as AgentType,
+          name: meta.displayName,
+          description: meta.description,
+          icon: meta.icon,
+          installed: false,
+          recommended: meta.recommended,
+        }));
+
+        setAgents(fallbackAgents);
+      } finally {
+        setIsDetecting(false);
+      }
+    };
+
+    detectInstalledAgents();
+  }, []);
   return (
     <div className="form-control w-full">
       <label className="label">
@@ -56,6 +102,12 @@ export default function AgentSelector({ value, onChange, error }: AgentSelectorP
           Select AI Agent
           <span className="text-error ml-1">*</span>
         </span>
+        {isDetecting && (
+          <span className="label-text-alt">
+            <span className="loading loading-spinner loading-sm mr-1"></span>
+            Detecting agents...
+          </span>
+        )}
       </label>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

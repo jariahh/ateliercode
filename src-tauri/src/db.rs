@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::migrate::MigrateDatabase;
 use std::path::PathBuf;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 /// Database connection pool
 #[derive(Clone)]

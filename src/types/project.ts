@@ -40,3 +40,17 @@ export interface ProjectStats {
   totalSessions: number;
   totalTokens: number;
 }
+
+// Agent info from backend detection
+export interface AgentInfo {
+  name: string;
+  installed: boolean;
+  version: string | null;
+  command: string;
+}
+
+// Error types
+export interface TauriError {
+  message: string;
+  code?: string;
+}

@@ -1,21 +1,49 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { ArrowLeft, Folder, Bot } from 'lucide-react';
+import type { Project } from '../types/project';
 
 export default function Workspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const project = useProjectStore((state) =>
-    id ? state.getProject(id) : null
-  );
+  const [project, setProject] = useState<Project | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const getProject = useProjectStore((state) => state.getProject);
   const setCurrentProject = useProjectStore((state) => state.setCurrentProject);
 
   useEffect(() => {
-    if (id) {
-      setCurrentProject(id);
-    }
-  }, [id, setCurrentProject]);
+    const loadProject = async () => {
+      if (!id) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        // Set as current project (updates last_activity in backend)
+        await setCurrentProject(id);
+        // Get the full project data
+        const projectData = await getProject(id);
+        setProject(projectData || null);
+      } catch (error) {
+        console.error('Failed to load project:', error);
+        setProject(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProject();
+  }, [id, getProject, setCurrentProject]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-base-100 flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
 
   if (!project) {
     return (

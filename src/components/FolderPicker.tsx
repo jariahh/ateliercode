@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FolderOpen } from 'lucide-react';
+import * as tauriApi from '../lib/tauri';
 
 interface FolderPickerProps {
   value: string;
@@ -24,29 +25,21 @@ export default function FolderPicker({
     setIsSelecting(true);
 
     try {
-      // TODO: Replace with actual Tauri dialog API call
-      // const selected = await open({
-      //   directory: true,
-      //   multiple: false,
-      //   title: 'Select Project Folder',
-      // });
+      if (tauriApi.isTauriAvailable()) {
+        // Use Tauri native folder picker
+        const selected = await tauriApi.selectFolder();
 
-      // Mock implementation for now
-      // In production, this will open the native file picker
-      const mockPath = 'C:\\Users\\YourName\\Projects\\my-new-project';
-
-      // Simulate async operation
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      // For now, just show an alert
-      alert('Folder picker will use Tauri dialog API. For now, please type the path manually.');
-
-      // Uncomment when Tauri backend is ready:
-      // if (selected && typeof selected === 'string') {
-      //   onChange(selected);
-      // }
+        if (selected) {
+          onChange(selected);
+        }
+        // If null, user cancelled - do nothing
+      } else {
+        // Browser dev mode - show alert
+        alert('Folder picker requires Tauri. Please run in app mode or type the path manually.');
+      }
     } catch (err) {
       console.error('Failed to open folder picker:', err);
+      alert('Failed to open folder picker. Please type the path manually.');
     } finally {
       setIsSelecting(false);
     }

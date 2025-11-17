@@ -1,8 +1,11 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agents;
+mod commands;
 mod db;
 mod models;
+mod types;
 
 use tauri::Manager;
 use db::Database;
@@ -19,7 +22,17 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            commands::create_project,
+            commands::get_projects,
+            commands::get_project,
+            commands::update_project,
+            commands::delete_project,
+            commands::detect_agents,
+            commands::select_folder,
+        ])
         .setup(|app| {
             // Initialize database
             let app_handle = app.handle();
@@ -29,13 +42,13 @@ fn main() {
                         log::info!("Database initialized successfully");
                         // Store database in app state for access in commands
                         app_handle.manage(db);
+                        Ok(())
                     }
                     Err(e) => {
                         log::error!("Failed to initialize database: {}", e);
-                        return Err(e.into());
+                        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))
                     }
                 }
-                Ok(())
             })?;
 
             #[cfg(debug_assertions)]
