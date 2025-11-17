@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use tauri::State;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
+use std::path::Path;
 use ignore::WalkBuilder;
 
 use crate::agents;
@@ -498,7 +497,7 @@ pub async fn read_project_files(
     log::info!("Reading files for project: {}", project_id);
 
     // Get project from database to get the root path
-    let project = get_project(db, project_id.clone())
+    let project = get_project(db.clone(), project_id.clone())
         .await?
         .ok_or_else(|| format!("Project not found: {}", project_id))?;
 
