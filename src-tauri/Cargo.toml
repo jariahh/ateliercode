@@ -20,9 +20,13 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 thiserror = "1.0"
+chrono = "0.4"
+log = "0.4"
+env_logger = "0.11"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "migrate"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
 
 # File System
 notify = "6.0"
