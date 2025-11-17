@@ -1,12 +1,13 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '../stores/projectStore';
-import { ArrowLeft, Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings } from 'lucide-react';
+import { ArrowLeft, Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings, Sparkles, Save } from 'lucide-react';
 import type { Project } from '../types/project';
 import OverviewTab from '../components/workspace/OverviewTab';
 import TasksTab from '../components/workspace/TasksTab';
 import FilesTab from '../components/workspace/FilesTab';
 import ChatTab from '../components/workspace/ChatTab';
+import { invoke } from '@tauri-apps/api/core';
 
 type TabType = 'overview' | 'chat' | 'files' | 'tasks' | 'settings';
 
@@ -18,6 +19,13 @@ export default function Workspace() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const getProject = useProjectStore((state) => state.getProject);
   const setCurrentProject = useProjectStore((state) => state.setCurrentProject);
+
+  // Settings tab state
+  const [editedName, setEditedName] = useState('');
+  const [editedDescription, setEditedDescription] = useState('');
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
     const loadProject = async () => {
@@ -33,6 +41,12 @@ export default function Workspace() {
         // Get the full project data
         const projectData = await getProject(id);
         setProject(projectData || null);
+
+        // Initialize settings form fields
+        if (projectData) {
+          setEditedName(projectData.name);
+          setEditedDescription(projectData.description || '');
+        }
       } catch (error) {
         console.error('Failed to load project:', error);
         setProject(null);
@@ -43,6 +57,60 @@ export default function Workspace() {
 
     loadProject();
   }, [id, getProject, setCurrentProject]);
+
+  // Track changes in settings
+  useEffect(() => {
+    if (!project) return;
+    const nameChanged = editedName !== project.name;
+    const descChanged = editedDescription !== (project.description || '');
+    setHasChanges(nameChanged || descChanged);
+  }, [editedName, editedDescription, project]);
+
+  // Handle AI regeneration
+  const handleRegenerateWithAI = async () => {
+    if (!id) return;
+
+    setIsRegenerating(true);
+    try {
+      const updatedProject = await invoke<Project>('update_project_with_ai', {
+        projectId: id,
+      });
+
+      // Update local state
+      setProject(updatedProject);
+      setEditedName(updatedProject.name);
+      setEditedDescription(updatedProject.description || '');
+      setHasChanges(false);
+    } catch (error) {
+      console.error('Failed to regenerate with AI:', error);
+      alert('Failed to regenerate project details with AI. Please check console for details.');
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  // Handle manual save
+  const handleSaveChanges = async () => {
+    if (!id) return;
+
+    setIsSaving(true);
+    try {
+      const updatedProject = await invoke<Project>('update_project', {
+        id,
+        name: editedName,
+        description: editedDescription,
+      });
+
+      // Update local state
+      setProject(updatedProject);
+      setHasChanges(false);
+    } catch (error) {
+      console.error('Failed to save changes:', error);
+      alert('Failed to save project changes. Please check console for details.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -166,7 +234,27 @@ export default function Workspace() {
         {activeTab === 'settings' && (
           <div className="card bg-base-200">
             <div className="card-body">
-              <h2 className="card-title">Project Settings</h2>
+              <div className="flex justify-between items-center">
+                <h2 className="card-title">Project Settings</h2>
+                <button
+                  onClick={handleRegenerateWithAI}
+                  disabled={isRegenerating}
+                  className="btn btn-primary btn-sm gap-2"
+                >
+                  {isRegenerating ? (
+                    <>
+                      <span className="loading loading-spinner loading-xs"></span>
+                      Regenerating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Regenerate with AI
+                    </>
+                  )}
+                </button>
+              </div>
+
               <div className="space-y-4 mt-4">
                 <div>
                   <label className="label">
@@ -175,10 +263,27 @@ export default function Workspace() {
                   <input
                     type="text"
                     className="input input-bordered w-full"
-                    value={project.name}
-                    disabled
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    placeholder="Enter project name"
                   />
                 </div>
+
+                <div>
+                  <label className="label">
+                    <span className="label-text">Description</span>
+                  </label>
+                  <textarea
+                    className="textarea textarea-bordered w-full"
+                    value={editedDescription}
+                    onChange={(e) => setEditedDescription(e.target.value)}
+                    placeholder="Enter project description"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="divider"></div>
+
                 <div>
                   <label className="label">
                     <span className="label-text">Project Path</span>
@@ -189,7 +294,13 @@ export default function Workspace() {
                     value={project.path}
                     disabled
                   />
+                  <label className="label">
+                    <span className="label-text-alt text-base-content/60">
+                      Project path cannot be changed
+                    </span>
+                  </label>
                 </div>
+
                 <div>
                   <label className="label">
                     <span className="label-text">AI Agent</span>
@@ -200,20 +311,44 @@ export default function Workspace() {
                     value={project.agent.type}
                     disabled
                   />
+                  <label className="label">
+                    <span className="label-text-alt text-base-content/60">
+                      Agent type cannot be changed after project creation
+                    </span>
+                  </label>
                 </div>
-                {project.description && (
-                  <div>
-                    <label className="label">
-                      <span className="label-text">Description</span>
-                    </label>
-                    <textarea
-                      className="textarea textarea-bordered w-full"
-                      value={project.description}
-                      disabled
-                      rows={3}
-                    />
-                  </div>
-                )}
+
+                <div className="divider"></div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setEditedName(project.name);
+                      setEditedDescription(project.description || '');
+                    }}
+                    disabled={!hasChanges || isSaving}
+                    className="btn btn-ghost btn-sm"
+                  >
+                    Reset Changes
+                  </button>
+                  <button
+                    onClick={handleSaveChanges}
+                    disabled={!hasChanges || isSaving}
+                    className="btn btn-success btn-sm gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <span className="loading loading-spinner loading-xs"></span>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        Save Changes
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

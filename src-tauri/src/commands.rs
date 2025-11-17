@@ -1036,6 +1036,49 @@ pub async fn analyze_project_directory(path: String) -> Result<ProjectAnalysisRe
     }
 }
 
+/// Update existing project details with AI-generated name and description
+#[tauri::command]
+pub async fn update_project_with_ai(
+    db: State<'_, Database>,
+    project_id: String,
+) -> Result<Project, String> {
+    log::info!("Updating project {} with AI", project_id);
+
+    // Get the existing project
+    let project = get_project(db.clone(), project_id.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+
+    // Run AI analysis on the project path
+    let analysis = analyze_project_with_ai(project.root_path.clone()).await?;
+
+    // Update the project in the database
+    sqlx::query(
+        r#"
+        UPDATE projects
+        SET name = ?, description = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(&analysis.suggested_name)
+    .bind(&analysis.suggested_description)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to update project: {}", e))?;
+
+    log::info!(
+        "Updated project {} with AI: name='{}', desc='{}'",
+        project_id,
+        analysis.suggested_name,
+        analysis.suggested_description
+    );
+
+    // Return the updated project
+    get_project(db, project_id)
+        .await?
+        .ok_or_else(|| "Failed to fetch updated project".to_string())
+}
+
 /// Analyze project with AI to generate intelligent name and description
 #[tauri::command]
 pub async fn analyze_project_with_ai(path: String) -> Result<ProjectAnalysisResult, String> {

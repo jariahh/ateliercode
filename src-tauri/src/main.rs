@@ -36,6 +36,7 @@ fn main() {
             commands::select_folder,
             commands::analyze_project_directory,
             commands::analyze_project_with_ai,
+            commands::update_project_with_ai,
             commands::create_task,
             commands::get_tasks,
             commands::update_task,
