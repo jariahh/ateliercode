@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CheckCircle2, Circle, ChevronDown, ChevronRight, ListTodo, Clock, CalendarDays } from 'lucide-react';
+import { getTasks, updateTaskStatus } from '../../api/tasks';
+import type { Task as BackendTask } from '../../types/tauri';
 
 export type TaskStatus = 'todo' | 'in_progress' | 'completed';
 export type TaskPriority = 'high' | 'medium' | 'low';
@@ -11,6 +13,10 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   createdAt: Date;
+}
+
+interface TasksTabProps {
+  projectId: string;
 }
 
 interface TaskCardProps {
@@ -220,72 +226,72 @@ function EmptyState({ hasAnyTasks }: EmptyStateProps) {
   );
 }
 
-// Mock data - 6 sample tasks across different priorities and statuses
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Fix authentication bug in login flow',
-    description: 'Users are experiencing intermittent login failures. Need to investigate the token refresh mechanism and add better error handling.',
-    status: 'in_progress',
-    priority: 'high',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-  },
-  {
-    id: '2',
-    title: 'Database migration for user preferences',
-    description: 'Create and run migration to add new fields for user theme preferences, language settings, and notification preferences.',
-    status: 'todo',
-    priority: 'high',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-  },
-  {
-    id: '3',
-    title: 'Implement dark mode toggle',
-    description: 'Add a toggle switch in settings to allow users to switch between light and dark themes. Should persist preference in localStorage.',
-    status: 'completed',
-    priority: 'medium',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3), // 3 days ago
-  },
-  {
-    id: '4',
-    title: 'Update API documentation',
-    description: 'Document the new endpoints for task management, including examples and response schemas. Update the OpenAPI specification file.',
-    status: 'in_progress',
-    priority: 'medium',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-  },
-  {
-    id: '5',
-    title: 'Add unit tests for TasksTab component',
-    description: 'Write comprehensive tests covering task creation, completion toggling, priority filtering, and edge cases.',
-    status: 'todo',
-    priority: 'low',
-    createdAt: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-  },
-  {
-    id: '6',
-    title: 'Optimize bundle size',
-    description: 'Analyze bundle and identify opportunities to reduce size. Consider lazy loading, code splitting, and removing unused dependencies.',
-    status: 'todo',
-    priority: 'low',
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48), // 2 days ago
-  },
-];
+// Convert backend task to frontend task format
+function convertBackendTask(backendTask: BackendTask): Task {
+  return {
+    id: backendTask.id,
+    title: backendTask.title,
+    description: backendTask.description || '',
+    status: backendTask.status as TaskStatus,
+    priority: backendTask.priority as TaskPriority,
+    createdAt: new Date(backendTask.created_at * 1000), // Convert Unix timestamp to Date
+  };
+}
 
-export default function TasksTab() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+export default function TasksTab({ projectId }: TasksTabProps) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleToggleComplete = (taskId: string) => {
+  // Load tasks on mount
+  useEffect(() => {
+    loadTasks();
+  }, [projectId]);
+
+  const loadTasks = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const backendTasks = await getTasks(projectId);
+      const convertedTasks = backendTasks.map(convertBackendTask);
+      setTasks(convertedTasks);
+    } catch (err) {
+      console.error('Failed to load tasks:', err);
+      setError('Failed to load tasks. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleComplete = async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    // Optimistically update UI
+    const newStatus: TaskStatus = task.status === 'completed' ? 'todo' : 'completed';
     setTasks(prevTasks =>
-      prevTasks.map(task =>
-        task.id === taskId
-          ? {
-              ...task,
-              status: task.status === 'completed' ? 'todo' : 'completed',
-            }
-          : task
+      prevTasks.map(t =>
+        t.id === taskId
+          ? { ...t, status: newStatus }
+          : t
       )
     );
+
+    try {
+      // Update backend
+      await updateTaskStatus(taskId, newStatus);
+    } catch (err) {
+      console.error('Failed to update task status:', err);
+      // Revert on error
+      setTasks(prevTasks =>
+        prevTasks.map(t =>
+          t.id === taskId
+            ? { ...t, status: task.status }
+            : t
+        )
+      );
+      setError('Failed to update task. Please try again.');
+    }
   };
 
   // Group tasks by priority
@@ -298,8 +304,28 @@ export default function TasksTab() {
   const completedTasks = tasks.filter(t => t.status === 'completed').length;
   const inProgressTasks = tasks.filter(t => t.status === 'in_progress').length;
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Error Alert */}
+      {error && (
+        <div className="alert alert-error">
+          <svg xmlns="http://www.w3.org/2000/svg" className="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={loadTasks}>Retry</button>
+        </div>
+      )}
+
       {/* Header with Stats */}
       <div className="flex items-center justify-between">
         <div>

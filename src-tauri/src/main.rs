@@ -32,6 +32,15 @@ fn main() {
             commands::delete_project,
             commands::detect_agents,
             commands::select_folder,
+            commands::create_task,
+            commands::get_tasks,
+            commands::update_task,
+            commands::delete_task,
+            commands::update_task_status,
+            commands::read_project_files,
+            commands::read_file_content,
+            commands::send_message,
+            commands::get_messages,
         ])
         .setup(|app| {
             // Initialize database

@@ -155,11 +155,11 @@ export default function Workspace() {
         )}
 
         {activeTab === 'files' && (
-          <FilesTab />
+          <FilesTab projectId={id} />
         )}
 
-        {activeTab === 'tasks' && (
-          <TasksTab />
+        {activeTab === 'tasks' && id && (
+          <TasksTab projectId={id} />
         )}
 
         {activeTab === 'settings' && (

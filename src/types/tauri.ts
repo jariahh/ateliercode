@@ -37,6 +37,49 @@ export interface AgentInfo {
   command: string;
 }
 
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  priority: string;
+  status: string;
+  estimated_hours: number | null;
+  actual_hours: number | null;
+  files_affected: string | null;
+  depends_on: string | null;
+  created_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+}
+
+export interface CreateTaskInput {
+  project_id: string;
+  title: string;
+  description?: string;
+  priority: string;
+}
+
+export interface UpdateTaskInput {
+  title?: string;
+  description?: string;
+  priority?: string;
+  status?: string;
+  estimated_hours?: number;
+  actual_hours?: number;
+  files_affected?: string;
+  depends_on?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  project_id: string;
+  role: string;
+  content: string;
+  timestamp: number;
+  metadata: string | null;
+}
+
 // Tauri command wrapper types
 export interface TauriCommands {
   create_project: (input: CreateProjectInput) => Promise<Project>;
@@ -46,4 +89,11 @@ export interface TauriCommands {
   delete_project: (id: string) => Promise<boolean>;
   detect_agents: () => Promise<AgentInfo[]>;
   select_folder: () => Promise<string | null>;
+  create_task: (input: CreateTaskInput) => Promise<Task>;
+  get_tasks: (project_id: string) => Promise<Task[]>;
+  update_task: (task_id: string, updates: UpdateTaskInput) => Promise<Task>;
+  delete_task: (task_id: string) => Promise<boolean>;
+  update_task_status: (task_id: string, status: string) => Promise<Task>;
+  send_message: (project_id: string, content: string) => Promise<ChatMessage>;
+  get_messages: (project_id: string) => Promise<ChatMessage[]>;
 }

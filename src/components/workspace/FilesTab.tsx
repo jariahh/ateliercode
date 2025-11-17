@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -13,7 +13,9 @@ import {
   Search,
   Calendar,
   HardDrive,
+  AlertCircle,
 } from 'lucide-react';
+import { readProjectFiles, readFileContent, type FileNode } from '../../api/files';
 
 // File type icons mapping
 const getFileIcon = (fileName: string) => {
@@ -53,8 +55,9 @@ const formatFileSize = (bytes: number): string => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-// Format date
-const formatDate = (date: Date): string => {
+// Format date from Unix timestamp
+const formatDate = (timestamp: number): string => {
+  const date = new Date(timestamp * 1000); // Convert from seconds to milliseconds
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -73,337 +76,40 @@ const formatDate = (date: Date): string => {
   return date.toLocaleDateString();
 };
 
-// File/Folder structure types
-export interface FileNode {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  size?: number;
-  modified?: Date;
-  children?: FileNode[];
-  content?: string; // For file preview
+// Extended FileNode with content for preview
+interface FileNodeWithContent extends FileNode {
+  content?: string;
 }
 
-// Mock file structure
-const mockFileStructure: FileNode[] = [
+// Simplified mock file structure - kept for fallback in non-Tauri environment
+const mockFileStructure: FileNodeWithContent[] = [
   {
-    id: '1',
-    name: 'src',
-    type: 'folder',
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 2),
-    children: [
-      {
-        id: '1-1',
-        name: 'components',
-        type: 'folder',
-        modified: new Date(Date.now() - 1000 * 60 * 30),
-        children: [
-          {
-            id: '1-1-1',
-            name: 'workspace',
-            type: 'folder',
-            modified: new Date(Date.now() - 1000 * 60 * 15),
-            children: [
-              {
-                id: '1-1-1-1',
-                name: 'FilesTab.tsx',
-                type: 'file',
-                size: 8456,
-                modified: new Date(Date.now() - 1000 * 60 * 5),
-                content: `import { useState } from 'react';
-import { File, Folder } from 'lucide-react';
-
-export default function FilesTab() {
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-
-  return (
-    <div className="file-browser">
-      <h2>File Browser</h2>
-      {/* File tree implementation */}
-    </div>
-  );
-}`,
-              },
-              {
-                id: '1-1-1-2',
-                name: 'OverviewTab.tsx',
-                type: 'file',
-                size: 2341,
-                modified: new Date(Date.now() - 1000 * 60 * 60),
-                content: `import AgentStatus from './AgentStatus';
-import ActivityStream from './ActivityStream';
-import StatsPanel from './StatsPanel';
-
-export default function OverviewTab({ agentType }: OverviewTabProps) {
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-1 space-y-6">
-        <AgentStatus agentType={agentType} status="idle" />
-        <StatsPanel />
-      </div>
-    </div>
-  );
-}`,
-              },
-              {
-                id: '1-1-1-3',
-                name: 'AgentStatus.tsx',
-                type: 'file',
-                size: 1823,
-                modified: new Date(Date.now() - 1000 * 60 * 60 * 3),
-              },
-            ],
-          },
-          {
-            id: '1-1-2',
-            name: 'ui',
-            type: 'folder',
-            modified: new Date(Date.now() - 1000 * 60 * 60 * 12),
-            children: [
-              {
-                id: '1-1-2-1',
-                name: 'Button.tsx',
-                type: 'file',
-                size: 1234,
-                modified: new Date(Date.now() - 1000 * 60 * 60 * 12),
-              },
-              {
-                id: '1-1-2-2',
-                name: 'Card.tsx',
-                type: 'file',
-                size: 987,
-                modified: new Date(Date.now() - 1000 * 60 * 60 * 12),
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: '1-2',
-        name: 'pages',
-        type: 'folder',
-        modified: new Date(Date.now() - 1000 * 60 * 60 * 4),
-        children: [
-          {
-            id: '1-2-1',
-            name: 'Workspace.tsx',
-            type: 'file',
-            size: 5678,
-            modified: new Date(Date.now() - 1000 * 60 * 60 * 4),
-            content: `import { useParams } from 'react-router-dom';
-import { useState } from 'react';
-import FilesTab from '../components/workspace/FilesTab';
-
-export default function Workspace() {
-  const { id } = useParams();
-  const [activeTab, setActiveTab] = useState('files');
-
-  return (
-    <div className="workspace">
-      <h1>Project Workspace</h1>
-      {activeTab === 'files' && <FilesTab />}
-    </div>
-  );
-}`,
-          },
-          {
-            id: '1-2-2',
-            name: 'Home.tsx',
-            type: 'file',
-            size: 3421,
-            modified: new Date(Date.now() - 1000 * 60 * 60 * 24),
-          },
-        ],
-      },
-      {
-        id: '1-3',
-        name: 'stores',
-        type: 'folder',
-        modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2),
-        children: [
-          {
-            id: '1-3-1',
-            name: 'projectStore.ts',
-            type: 'file',
-            size: 4532,
-            modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2),
-          },
-        ],
-      },
-      {
-        id: '1-4',
-        name: 'types',
-        type: 'folder',
-        modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3),
-        children: [
-          {
-            id: '1-4-1',
-            name: 'project.ts',
-            type: 'file',
-            size: 876,
-            modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3),
-          },
-        ],
-      },
-      {
-        id: '1-5',
-        name: 'App.tsx',
-        type: 'file',
-        size: 2134,
-        modified: new Date(Date.now() - 1000 * 60 * 60 * 24),
-        content: `import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Home from './pages/Home';
-import Workspace from './pages/Workspace';
-
-export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/workspace/:id" element={<Workspace />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}`,
-      },
-      {
-        id: '1-6',
-        name: 'main.tsx',
-        type: 'file',
-        size: 456,
-        modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
-      },
-    ],
-  },
-  {
-    id: '2',
-    name: 'public',
-    type: 'folder',
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7),
-    children: [
-      {
-        id: '2-1',
-        name: 'vite.svg',
-        type: 'file',
-        size: 1234,
-        modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7),
-      },
-    ],
-  },
-  {
-    id: '3',
-    name: 'package.json',
-    type: 'file',
-    size: 1567,
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 24),
-    content: `{
-  "name": "ateliercode",
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "zustand": "^4.4.7",
-    "lucide-react": "^0.294.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.43",
-    "@types/react-dom": "^18.2.17",
-    "typescript": "^5.3.3",
-    "vite": "^5.0.7"
-  }
-}`,
-  },
-  {
-    id: '4',
-    name: 'tsconfig.json',
-    type: 'file',
-    size: 876,
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
-    content: `{
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
-}`,
-  },
-  {
-    id: '5',
+    id: 'mock-readme',
     name: 'README.md',
+    path: '/mock/README.md',
     type: 'file',
-    size: 2345,
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7),
-    content: `# AtelierCode
-
-A modern AI-powered code workspace for collaborative development.
-
-## Features
-
-- AI Agent Integration
-- Real-time Code Collaboration
-- File Management
-- Task Tracking
-- Project Overview
-
-## Getting Started
-
-\`\`\`bash
-npm install
-npm run dev
-\`\`\`
-
-## Tech Stack
-
-- React + TypeScript
-- Vite
-- TailwindCSS + DaisyUI
-- Tauri
-`,
+    size: 1234,
+    modified: Math.floor(Date.now() / 1000) - 3600,
+    content: '# Mock Project\n\nThis is mock data shown when Tauri is not available.',
   },
   {
-    id: '6',
-    name: 'vite.config.ts',
+    id: 'mock-package',
+    name: 'package.json',
+    path: '/mock/package.json',
     type: 'file',
-    size: 432,
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
-  },
-  {
-    id: '7',
-    name: 'tailwind.config.js',
-    type: 'file',
-    size: 678,
-    modified: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
+    size: 567,
+    modified: Math.floor(Date.now() / 1000) - 7200,
+    content: '{\n  "name": "mock-project",\n  "version": "1.0.0"\n}',
   },
 ];
 
 // File tree item component
 interface FileTreeItemProps {
-  node: FileNode;
+  node: FileNodeWithContent;
   level: number;
   selectedId: string | null;
   expandedIds: Set<string>;
-  onSelect: (node: FileNode) => void;
+  onSelect: (node: FileNodeWithContent) => void;
   onToggle: (id: string) => void;
 }
 
@@ -480,10 +186,19 @@ function FileTreeItem({
 
 // File preview component
 interface FilePreviewProps {
-  file: FileNode | null;
+  file: FileNodeWithContent | null;
+  isLoading?: boolean;
 }
 
-function FilePreview({ file }: FilePreviewProps) {
+function FilePreview({ file, isLoading }: FilePreviewProps) {
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
   if (!file) {
     return (
       <div className="h-full flex items-center justify-center text-base-content/50">
@@ -550,11 +265,48 @@ function FilePreview({ file }: FilePreviewProps) {
   );
 }
 
+// Main FilesTab component props
+interface FilesTabProps {
+  projectId?: string;
+}
+
 // Main FilesTab component
-export default function FilesTab() {
-  const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set(['1', '1-1', '1-1-1']));
+export default function FilesTab({ projectId }: FilesTabProps) {
+  const [fileTree, setFileTree] = useState<FileNodeWithContent[]>([]);
+  const [selectedFile, setSelectedFile] = useState<FileNodeWithContent | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoadingTree, setIsLoadingTree] = useState(false);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load file tree on mount
+  useEffect(() => {
+    const loadFiles = async () => {
+      if (!projectId) {
+        // Use mock data if no project ID
+        setFileTree(mockFileStructure);
+        return;
+      }
+
+      setIsLoadingTree(true);
+      setError(null);
+
+      try {
+        const files = await readProjectFiles(projectId);
+        setFileTree(files as FileNodeWithContent[]);
+      } catch (err) {
+        console.error('Failed to load project files:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load files');
+        // Fallback to mock data on error
+        setFileTree(mockFileStructure);
+      } finally {
+        setIsLoadingTree(false);
+      }
+    };
+
+    loadFiles();
+  }, [projectId]);
 
   const handleToggle = (id: string) => {
     setExpandedIds((prev) => {
@@ -568,8 +320,24 @@ export default function FilesTab() {
     });
   };
 
-  const handleSelect = (node: FileNode) => {
+  const handleSelect = async (node: FileNodeWithContent) => {
     setSelectedFile(node);
+
+    // If it's a file and we have a project ID, load its content
+    if (node.type === 'file' && projectId && !node.content) {
+      setIsLoadingContent(true);
+      try {
+        const content = await readFileContent(projectId, node.path);
+        // Update the selected file with content
+        setSelectedFile({ ...node, content });
+      } catch (err) {
+        console.error('Failed to load file content:', err);
+        // Show file without content on error
+        setSelectedFile({ ...node, content: undefined });
+      } finally {
+        setIsLoadingContent(false);
+      }
+    }
   };
 
   return (
@@ -591,25 +359,46 @@ export default function FilesTab() {
             </div>
           </div>
 
+          {/* Error message */}
+          {error && (
+            <div className="alert alert-warning m-2">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm">{error}</span>
+            </div>
+          )}
+
           {/* File tree */}
           <div className="flex-1 overflow-y-auto p-2">
-            {mockFileStructure.map((node) => (
-              <FileTreeItem
-                key={node.id}
-                node={node}
-                level={0}
-                selectedId={selectedFile?.id || null}
-                expandedIds={expandedIds}
-                onSelect={handleSelect}
-                onToggle={handleToggle}
-              />
-            ))}
+            {isLoadingTree ? (
+              <div className="flex items-center justify-center h-full">
+                <span className="loading loading-spinner loading-md"></span>
+              </div>
+            ) : fileTree.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-base-content/50">
+                <div className="text-center">
+                  <Folder className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">No files found</p>
+                </div>
+              </div>
+            ) : (
+              fileTree.map((node) => (
+                <FileTreeItem
+                  key={node.id}
+                  node={node}
+                  level={0}
+                  selectedId={selectedFile?.id || null}
+                  expandedIds={expandedIds}
+                  onSelect={handleSelect}
+                  onToggle={handleToggle}
+                />
+              ))
+            )}
           </div>
         </div>
 
         {/* Right side - File preview */}
         <div className="flex-1 bg-base-100">
-          <FilePreview file={selectedFile} />
+          <FilePreview file={selectedFile} isLoading={isLoadingContent} />
         </div>
       </div>
     </div>
