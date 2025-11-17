@@ -4,6 +4,9 @@ import { useProjectStore } from '../stores/projectStore';
 import { ArrowLeft, Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings } from 'lucide-react';
 import type { Project } from '../types/project';
 import OverviewTab from '../components/workspace/OverviewTab';
+import TasksTab from '../components/workspace/TasksTab';
+import FilesTab from '../components/workspace/FilesTab';
+import ChatTab from '../components/workspace/ChatTab';
 
 type TabType = 'overview' | 'chat' | 'files' | 'tasks' | 'settings';
 
@@ -148,30 +151,15 @@ export default function Workspace() {
         )}
 
         {activeTab === 'chat' && (
-          <div className="card bg-base-200">
-            <div className="card-body">
-              <h2 className="card-title">Chat</h2>
-              <p className="text-base-content/70">Chat interface coming soon...</p>
-            </div>
-          </div>
+          <ChatTab projectId={id} />
         )}
 
         {activeTab === 'files' && (
-          <div className="card bg-base-200">
-            <div className="card-body">
-              <h2 className="card-title">Files</h2>
-              <p className="text-base-content/70">File browser coming soon...</p>
-            </div>
-          </div>
+          <FilesTab />
         )}
 
         {activeTab === 'tasks' && (
-          <div className="card bg-base-200">
-            <div className="card-body">
-              <h2 className="card-title">Tasks</h2>
-              <p className="text-base-content/70">Task management coming soon...</p>
-            </div>
-          </div>
+          <TasksTab />
         )}
 
         {activeTab === 'settings' && (

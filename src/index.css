@@ -57,3 +57,64 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  /* Chat message markdown styles */
+  .chat-bubble .prose {
+    color: inherit;
+    max-width: none;
+  }
+
+  .chat-bubble .prose p {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+
+  .chat-bubble .prose p:first-child {
+    margin-top: 0;
+  }
+
+  .chat-bubble .prose p:last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-bubble .prose ul,
+  .chat-bubble .prose ol {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+
+  .chat-bubble .prose li {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+  }
+
+  .chat-bubble .prose code {
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+  }
+
+  .chat-bubble .prose pre {
+    margin-top: 0.75em;
+    margin-bottom: 0.75em;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .chat-bubble-primary .prose code {
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .chat-bubble-secondary .prose code {
+    background-color: rgba(0, 0, 0, 0.15);
+  }
+
+  /* Syntax highlighter customization */
+  .chat-bubble .prose pre > div {
+    margin: 0 !important;
+    border-radius: 0.5rem !important;
+    font-size: 0.875rem !important;
+  }
+}
