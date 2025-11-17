@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Sparkles } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Check, Sparkles, FolderOpen, Loader2 } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
 import type { AgentType, CreateProjectInput } from '../types/project';
 import AgentSelector from '../components/AgentSelector';
@@ -20,16 +20,36 @@ interface FormErrors {
   agentType?: string;
 }
 
-const STEPS = [
+const NEW_PROJECT_STEPS = [
   { id: 1, label: 'Basic Info', description: 'Project name and location' },
   { id: 2, label: 'AI Agent', description: 'Choose your assistant' },
   { id: 3, label: 'Review', description: 'Confirm and create' },
 ];
 
+const EXISTING_PROJECT_STEPS = [
+  { id: 1, label: 'Select Folder', description: 'Choose existing project' },
+  { id: 2, label: 'AI Agent', description: 'Choose your assistant' },
+  { id: 3, label: 'AI Analysis', description: 'Analyzing project' },
+  { id: 4, label: 'Review', description: 'Confirm and create' },
+];
+
+interface AIAnalysisResult {
+  suggestedName: string;
+  suggestedDescription: string;
+  detectedLanguages: string[];
+  detectedFrameworks: string[];
+  fileCount: number;
+  hasGit: boolean;
+}
+
 export default function ProjectWizard() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const mode = searchParams.get('mode') === 'existing' ? 'existing' : 'new';
   const createProject = useProjectStore((state) => state.createProject);
   const isLoading = useProjectStore((state) => state.isLoading);
+
+  const STEPS = mode === 'existing' ? EXISTING_PROJECT_STEPS : NEW_PROJECT_STEPS;
 
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>({
@@ -40,6 +60,8 @@ export default function ProjectWizard() {
     initGit: true,
   });
   const [errors, setErrors] = useState<FormErrors>({});
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
 
   const updateFormData = (field: keyof FormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -52,21 +74,43 @@ export default function ProjectWizard() {
   const validateStep = (step: number): boolean => {
     const newErrors: FormErrors = {};
 
-    if (step === 1) {
-      if (!formData.name.trim()) {
-        newErrors.name = 'Project name is required';
-      } else if (formData.name.length < 3) {
-        newErrors.name = 'Project name must be at least 3 characters';
+    if (mode === 'existing') {
+      // Existing project validation
+      if (step === 1) {
+        if (!formData.path.trim()) {
+          newErrors.path = 'Please select a project folder';
+        }
       }
 
-      if (!formData.path.trim()) {
-        newErrors.path = 'Project location is required';
+      if (step === 2) {
+        if (!formData.agentType) {
+          newErrors.agentType = 'Please select an AI agent';
+        }
       }
-    }
 
-    if (step === 2) {
-      if (!formData.agentType) {
-        newErrors.agentType = 'Please select an AI agent';
+      if (step === 4) {
+        if (!formData.name.trim()) {
+          newErrors.name = 'Project name is required';
+        }
+      }
+    } else {
+      // New project validation
+      if (step === 1) {
+        if (!formData.name.trim()) {
+          newErrors.name = 'Project name is required';
+        } else if (formData.name.length < 3) {
+          newErrors.name = 'Project name must be at least 3 characters';
+        }
+
+        if (!formData.path.trim()) {
+          newErrors.path = 'Project location is required';
+        }
+      }
+
+      if (step === 2) {
+        if (!formData.agentType) {
+          newErrors.agentType = 'Please select an AI agent';
+        }
       }
     }
 
@@ -87,6 +131,47 @@ export default function ProjectWizard() {
       setCurrentStep(currentStep - 1);
     }
   };
+
+  // AI Analysis for existing projects
+  const analyzeExistingProject = async () => {
+    setIsAnalyzing(true);
+
+    try {
+      // Simulate AI analysis (in production, this would call the AI agent)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Mock AI analysis result
+      const pathParts = formData.path.split(/[/\\]/);
+      const folderName = pathParts[pathParts.length - 1] || 'my-project';
+
+      const mockAnalysis: AIAnalysisResult = {
+        suggestedName: folderName,
+        suggestedDescription: `A ${formData.agentType || 'code'} project with modern architecture and best practices. This project appears to be well-structured and ready for AI-assisted development.`,
+        detectedLanguages: ['TypeScript', 'JavaScript', 'CSS'],
+        detectedFrameworks: ['React', 'Vite', 'Tailwind CSS'],
+        fileCount: 42,
+        hasGit: true,
+      };
+
+      setAiAnalysis(mockAnalysis);
+
+      // Auto-fill form with AI suggestions
+      updateFormData('name', mockAnalysis.suggestedName);
+      updateFormData('description', mockAnalysis.suggestedDescription);
+      updateFormData('initGit', !mockAnalysis.hasGit); // Only init if doesn't have git
+    } catch (error) {
+      console.error('Failed to analyze project:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Trigger analysis when moving to step 3 in existing mode
+  useEffect(() => {
+    if (mode === 'existing' && currentStep === 3 && !aiAnalysis && formData.agentType) {
+      analyzeExistingProject();
+    }
+  }, [currentStep, mode, formData.agentType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,6 +204,257 @@ export default function ProjectWizard() {
   };
 
   const renderStepContent = () => {
+    // For existing projects
+    if (mode === 'existing') {
+      switch (currentStep) {
+        case 1:
+          return (
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
+                    <FolderOpen className="w-8 h-8 text-primary" />
+                  </div>
+                </div>
+                <h2 className="text-3xl font-bold mb-2">Add Existing Project</h2>
+                <p className="text-base-content/70">
+                  Select a folder containing your existing code
+                </p>
+              </div>
+
+              {/* Project Location */}
+              <FolderPicker
+                value={formData.path}
+                onChange={(path) => updateFormData('path', path)}
+                error={errors.path}
+                required
+                label="Existing Project Folder"
+              />
+
+              <div className="alert alert-info">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span>Our AI will analyze your project and suggest details automatically</span>
+              </div>
+            </div>
+          );
+
+        case 2:
+          return (
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-bold mb-2">Choose Your AI Agent</h2>
+                <p className="text-base-content/70">
+                  Select the AI assistant to help with this project
+                </p>
+              </div>
+
+              <AgentSelector
+                value={formData.agentType}
+                onChange={(agent) => updateFormData('agentType', agent)}
+                error={errors.agentType}
+              />
+            </div>
+          );
+
+        case 3:
+          return (
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <div className="flex justify-center mb-4">
+                  <div className={`w-16 h-16 rounded-full ${isAnalyzing ? 'bg-primary/20 animate-pulse' : 'bg-success/20'} flex items-center justify-center`}>
+                    {isAnalyzing ? (
+                      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                    ) : (
+                      <Sparkles className="w-8 h-8 text-success" />
+                    )}
+                  </div>
+                </div>
+                <h2 className="text-3xl font-bold mb-2">
+                  {isAnalyzing ? 'Analyzing Project...' : 'Analysis Complete!'}
+                </h2>
+                <p className="text-base-content/70">
+                  {isAnalyzing
+                    ? 'AI is examining your project structure, code, and dependencies'
+                    : 'Here\'s what we discovered about your project'}
+                </p>
+              </div>
+
+              {isAnalyzing ? (
+                <div className="card bg-base-200">
+                  <div className="card-body">
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3">
+                        <span className="loading loading-spinner loading-sm text-primary"></span>
+                        <span>Scanning files and directories...</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="loading loading-spinner loading-sm text-primary"></span>
+                        <span>Detecting languages and frameworks...</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="loading loading-spinner loading-sm text-primary"></span>
+                        <span>Analyzing project structure...</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="loading loading-spinner loading-sm text-primary"></span>
+                        <span>Generating description...</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : aiAnalysis && (
+                <div className="space-y-4">
+                  <div className="card bg-base-200">
+                    <div className="card-body">
+                      <h3 className="card-title text-lg mb-4">Project Analysis</h3>
+
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="stat bg-base-300 rounded-lg p-4">
+                          <div className="stat-title text-xs">Files Found</div>
+                          <div className="stat-value text-2xl">{aiAnalysis.fileCount}</div>
+                        </div>
+                        <div className="stat bg-base-300 rounded-lg p-4">
+                          <div className="stat-title text-xs">Git Repository</div>
+                          <div className="stat-value text-2xl">{aiAnalysis.hasGit ? '✓' : '✗'}</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-sm text-base-content/60 mb-2">Detected Languages</div>
+                          <div className="flex flex-wrap gap-2">
+                            {aiAnalysis.detectedLanguages.map(lang => (
+                              <div key={lang} className="badge badge-primary">{lang}</div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-sm text-base-content/60 mb-2">Detected Frameworks</div>
+                          <div className="flex flex-wrap gap-2">
+                            {aiAnalysis.detectedFrameworks.map(fw => (
+                              <div key={fw} className="badge badge-secondary">{fw}</div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="alert alert-success">
+                    <Sparkles className="w-5 h-5" />
+                    <span>AI has auto-filled the project details below. Feel free to edit them!</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+
+        case 4:
+          return (
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <div className="flex justify-center mb-4">
+                  <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
+                    <Check className="w-8 h-8 text-primary" />
+                  </div>
+                </div>
+                <h2 className="text-3xl font-bold mb-2">Review & Customize</h2>
+                <p className="text-base-content/70">
+                  Verify AI suggestions and adjust if needed
+                </p>
+              </div>
+
+              <div className="card bg-base-200">
+                <div className="card-body">
+                  <h3 className="card-title text-lg mb-4">Project Details</h3>
+
+                  <div className="space-y-4">
+                    {/* Editable Project Name */}
+                    <div className="form-control w-full">
+                      <label className="label">
+                        <span className="label-text font-medium">
+                          Project Name
+                          <span className="text-error ml-1">*</span>
+                        </span>
+                        <span className="label-text-alt badge badge-sm badge-success">AI Suggested</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => updateFormData('name', e.target.value)}
+                        className="input input-bordered w-full"
+                      />
+                    </div>
+
+                    <div className="divider my-2"></div>
+
+                    <div>
+                      <div className="text-sm text-base-content/60 mb-1">Location</div>
+                      <div className="font-medium font-mono text-sm">{formData.path}</div>
+                    </div>
+
+                    <div className="divider my-2"></div>
+
+                    {/* Editable Description */}
+                    <div className="form-control w-full">
+                      <label className="label">
+                        <span className="label-text font-medium">Description</span>
+                        <span className="label-text-alt badge badge-sm badge-success">AI Suggested</span>
+                      </label>
+                      <textarea
+                        value={formData.description}
+                        onChange={(e) => updateFormData('description', e.target.value)}
+                        className="textarea textarea-bordered w-full h-24"
+                      />
+                    </div>
+
+                    <div className="divider my-2"></div>
+
+                    <div>
+                      <div className="text-sm text-base-content/60 mb-1">AI Agent</div>
+                      <div className="font-medium">
+                        {formData.agentType?.split('-').map(word =>
+                          word.charAt(0).toUpperCase() + word.slice(1)
+                        ).join(' ')}
+                      </div>
+                    </div>
+
+                    {!aiAnalysis?.hasGit && (
+                      <>
+                        <div className="divider my-2"></div>
+                        <div className="form-control">
+                          <label className="label cursor-pointer justify-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={formData.initGit}
+                              onChange={(e) => updateFormData('initGit', e.target.checked)}
+                              className="checkbox checkbox-primary"
+                            />
+                            <div>
+                              <span className="label-text font-medium">Initialize Git repository</span>
+                              <p className="text-sm text-base-content/60">
+                                No git repository detected
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+
+        default:
+          return null;
+      }
+    }
+
+    // For new projects (original flow)
     switch (currentStep) {
       case 1:
         return (
