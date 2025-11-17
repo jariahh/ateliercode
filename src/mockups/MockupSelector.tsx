@@ -1,20 +1,22 @@
 import { useState } from "react";
 import { Home } from "lucide-react";
+import { useThemeStore } from "@/stores/themeStore";
+import ThemeSelector from "@/components/ThemeSelector";
 import Mockup1 from "./mockup-1/Workspace";
 import Mockup2 from "./mockup-2/Workspace";
 import Mockup3 from "./mockup-3/Workspace";
 import Mockup4 from "./mockup-4/Workspace";
 
 const mockups = [
-  { id: 1, name: "Linear Style", component: Mockup1, theme: "light" },
-  { id: 2, name: "VS Code Dark", component: Mockup2, theme: "dark" },
-  { id: 3, name: "Notion Clean", component: Mockup3, theme: "cupcake" },
-  { id: 4, name: "Cyberpunk Edge", component: Mockup4, theme: "cyberpunk" },
+  { id: 1, name: "Linear Style", component: Mockup1 },
+  { id: 2, name: "VS Code Dark", component: Mockup2 },
+  { id: 3, name: "Notion Clean", component: Mockup3 },
+  { id: 4, name: "Cyberpunk Edge", component: Mockup4 },
 ];
 
 export default function MockupSelector() {
   const [selectedMockup, setSelectedMockup] = useState<number | null>(null);
-  const [theme, setTheme] = useState("light");
+  const { theme } = useThemeStore();
 
   if (selectedMockup === null) {
     return (
@@ -31,10 +33,7 @@ export default function MockupSelector() {
             {mockups.map((mockup) => (
               <button
                 key={mockup.id}
-                onClick={() => {
-                  setSelectedMockup(mockup.id);
-                  setTheme(mockup.theme);
-                }}
+                onClick={() => setSelectedMockup(mockup.id)}
                 className="card bg-base-100 shadow-xl hover:shadow-2xl transition-all hover:scale-105 cursor-pointer"
               >
                 <div className="card-body">
@@ -49,7 +48,7 @@ export default function MockupSelector() {
                     {mockup.id === 4 && "Bold, vibrant cyberpunk aesthetic"}
                   </p>
                   <div className="card-actions justify-end mt-4">
-                    <div className="badge badge-outline">Theme: {mockup.theme}</div>
+                    <div className="badge badge-outline">Click to preview</div>
                   </div>
                 </div>
               </button>
@@ -87,20 +86,7 @@ export default function MockupSelector() {
           <div className="badge badge-lg badge-primary">
             Mockup {selectedMockup}: {mockups.find((m) => m.id === selectedMockup)?.name}
           </div>
-          <select
-            className="select select-bordered select-sm"
-            value={theme}
-            onChange={(e) => setTheme(e.target.value)}
-          >
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="cupcake">Cupcake</option>
-            <option value="cyberpunk">Cyberpunk</option>
-            <option value="synthwave">Synthwave</option>
-            <option value="forest">Forest</option>
-            <option value="lofi">Lofi</option>
-            <option value="dracula">Dracula</option>
-          </select>
+          <ThemeSelector />
         </div>
       </div>
       {MockupComponent && <MockupComponent />}
