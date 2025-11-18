@@ -1529,7 +1529,9 @@ pub async fn get_file_diff(
 // ============================================================================
 // Agent Session Commands
 // ============================================================================
+// TODO: Fix PTY Sync issues before enabling these commands
 
+/*
 /// Start an agent session for a project
 #[tauri::command]
 pub async fn start_agent_session(
@@ -1733,6 +1735,7 @@ pub async fn parse_agent_output(
 
     Ok(parsed)
 }
+*/
 
 #[cfg(test)]
 mod tests {

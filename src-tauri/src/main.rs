@@ -16,7 +16,8 @@ mod types;
 use tauri::Manager;
 use db::Database;
 use file_watcher::FileWatcherManager;
-use agent_manager::AgentManager;
+// TODO: Fix PTY Sync issues before enabling
+// use agent_manager::AgentManager;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
