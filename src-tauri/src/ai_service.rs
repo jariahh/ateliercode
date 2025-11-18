@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use which::which;
 

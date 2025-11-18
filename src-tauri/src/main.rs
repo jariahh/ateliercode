@@ -63,14 +63,15 @@ fn main() {
             commands::approve_change,
             commands::reject_change,
             commands::get_file_diff,
-            commands::start_agent_session,
-            commands::send_to_agent,
-            commands::read_agent_output,
-            commands::stop_agent_session,
-            commands::get_agent_status,
-            commands::list_agent_sessions,
-            commands::check_agent_health,
-            commands::parse_agent_output,
+            // TODO: Fix PTY Sync issues before enabling
+            // commands::start_agent_session,
+            // commands::send_to_agent,
+            // commands::read_agent_output,
+            // commands::stop_agent_session,
+            // commands::get_agent_status,
+            // commands::list_agent_sessions,
+            // commands::check_agent_health,
+            // commands::parse_agent_output,
         ])
         .setup(|app| {
             // Initialize database
@@ -95,10 +96,11 @@ fn main() {
             app.manage(watcher_manager);
             log::info!("File watcher manager initialized");
 
+            // TODO: Fix PTY Sync issues before enabling
             // Initialize agent manager
-            let agent_manager = AgentManager::new();
-            app.manage(agent_manager);
-            log::info!("Agent manager initialized");
+            // let agent_manager = AgentManager::new();
+            // app.manage(agent_manager);
+            // log::info!("Agent manager initialized");
 
             #[cfg(debug_assertions)]
             {

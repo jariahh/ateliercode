@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};

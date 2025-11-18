@@ -3,12 +3,10 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-
-use crate::models::FileChange;
 
 /// Manages file system watchers for projects
 pub struct FileWatcherManager {
