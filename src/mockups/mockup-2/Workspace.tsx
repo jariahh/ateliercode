@@ -86,7 +86,7 @@ export default function Workspace() {
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">2</span>
-                  <span><span className="text-purple-400">import</span> <span className="text-blue-400">{'{'}Request, Response, NextFunction{'}'}</span> <span className="text-purple-400">from</span> <span className="text-green-400">'express'</span>;</span>
+                  <span><span className="text-purple-400">import</span> <span className="text-blue-400">{'{'} Request, Response, NextFunction {'}'}</span> <span className="text-purple-400">from</span> <span className="text-green-400">'express'</span>;</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">3</span>

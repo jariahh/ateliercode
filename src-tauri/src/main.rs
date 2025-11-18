@@ -1,16 +1,22 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod adapters;
+mod agent_adapter;
+mod agent_manager;
 mod agents;
 mod ai_service;
 mod commands;
 mod db;
+mod file_watcher;
 mod models;
 mod project_analyzer;
 mod types;
 
 use tauri::Manager;
 use db::Database;
+use file_watcher::FileWatcherManager;
+use agent_manager::AgentManager;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
@@ -49,6 +55,22 @@ fn main() {
             commands::log_activity,
             commands::get_activities,
             commands::get_project_stats,
+            commands::start_watching_project,
+            commands::stop_watching_project,
+            commands::is_watching_project,
+            commands::get_pending_changes,
+            commands::get_all_changes,
+            commands::approve_change,
+            commands::reject_change,
+            commands::get_file_diff,
+            commands::start_agent_session,
+            commands::send_to_agent,
+            commands::read_agent_output,
+            commands::stop_agent_session,
+            commands::get_agent_status,
+            commands::list_agent_sessions,
+            commands::check_agent_health,
+            commands::parse_agent_output,
         ])
         .setup(|app| {
             // Initialize database
@@ -67,6 +89,16 @@ fn main() {
                     }
                 }
             })?;
+
+            // Initialize file watcher manager
+            let watcher_manager = FileWatcherManager::new();
+            app.manage(watcher_manager);
+            log::info!("File watcher manager initialized");
+
+            // Initialize agent manager
+            let agent_manager = AgentManager::new();
+            app.manage(agent_manager);
+            log::info!("Agent manager initialized");
 
             #[cfg(debug_assertions)]
             {

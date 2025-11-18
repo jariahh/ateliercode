@@ -1,36 +1,58 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Loader2 } from 'lucide-react';
+import { Send, User, Bot, Loader2, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
 import * as chatApi from '../../api/chat';
 import type { ChatMessage as BackendChatMessage } from '../../types/tauri';
+import CodeBlock from '../chat/CodeBlock';
+import MessageActions from '../chat/MessageActions';
+import QuickActions from '../chat/QuickActions';
+import StreamingMessage from '../chat/StreamingMessage';
+import MessageSkeleton from '../chat/MessageSkeleton';
+
+export type MessageStatus = 'sending' | 'sent' | 'streaming' | 'completed' | 'error';
+
+export interface MessageMetadata {
+  tokensUsed?: number;
+  processingTime?: number;
+  model?: string;
+  error?: string;
+}
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  status?: MessageStatus;
+  metadata?: MessageMetadata;
+  isStreaming?: boolean;
 }
 
 export interface ChatTabProps {
   projectId?: string;
 }
 
-// Type for react-markdown code props
-interface CodeProps {
-  inline?: boolean;
-  className?: string;
-  children?: React.ReactNode;
-}
-
 // Helper function to convert backend message to frontend format
 function convertMessage(backendMsg: BackendChatMessage): ChatMessage {
+  // Parse metadata if available
+  let metadata: MessageMetadata | undefined;
+  if (backendMsg.metadata) {
+    try {
+      metadata = JSON.parse(backendMsg.metadata);
+    } catch (e) {
+      console.warn('Failed to parse message metadata:', e);
+    }
+  }
+
   return {
     id: backendMsg.id,
     role: backendMsg.role as 'user' | 'assistant',
     content: backendMsg.content,
-    timestamp: new Date(backendMsg.timestamp * 1000), // Convert Unix timestamp to Date
+    timestamp: new Date(backendMsg.timestamp * 1000),
+    status: 'completed',
+    metadata,
+    isStreaming: false,
   };
 }
 
@@ -81,29 +103,100 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     }
   }, [inputValue]);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || isTyping || !projectId) return;
+  const handleSend = async (messageContent?: string) => {
+    const content = messageContent || inputValue.trim();
+    if (!content || isTyping || !projectId) return;
 
-    const messageContent = inputValue.trim();
     setInputValue('');
     setIsTyping(true);
     setError(null);
 
-    try {
-      // Send message to backend (which saves both user message and AI response)
-      await chatApi.sendMessage(projectId, messageContent);
+    // Add user message immediately
+    const userMessage: ChatMessage = {
+      id: `temp-user-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: new Date(),
+      status: 'sending',
+    };
 
-      // Reload messages to get both user message and AI response
-      const backendMessages = await chatApi.getMessages(projectId);
-      const convertedMessages = backendMessages.map(convertMessage);
-      setMessages(convertedMessages);
+    setMessages((prev) => [...prev, userMessage]);
+
+    try {
+      const startTime = Date.now();
+
+      // Send message to backend
+      const aiResponse = await chatApi.sendMessage(projectId, content);
+
+      const processingTime = Date.now() - startTime;
+
+      // Convert AI response
+      const aiMessage = convertMessage(aiResponse);
+      aiMessage.metadata = {
+        ...aiMessage.metadata,
+        processingTime,
+      };
+      aiMessage.isStreaming = true; // Enable streaming effect for new messages
+
+      // Update user message to 'sent' and add AI response
+      setMessages((prev) => {
+        const updated = [...prev];
+        const userMsgIndex = updated.findIndex((m) => m.id === userMessage.id);
+        if (userMsgIndex !== -1) {
+          updated[userMsgIndex] = {
+            ...updated[userMsgIndex],
+            status: 'sent',
+          };
+        }
+        return [...updated, aiMessage];
+      });
+
+      // After a delay, mark streaming as complete
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMessage.id ? { ...m, isStreaming: false } : m
+          )
+        );
+      }, aiMessage.content.length * 10 + 100);
     } catch (err) {
       console.error('Failed to send message:', err);
       setError('Failed to send message. Please try again.');
+
+      // Update user message to show error
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === userMessage.id
+            ? { ...m, status: 'error', metadata: { error: 'Failed to send' } }
+            : m
+        )
+      );
+
       // Restore the input value so user can retry
-      setInputValue(messageContent);
+      setInputValue(content);
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const handleQuickAction = (prompt: string) => {
+    setInputValue(prompt);
+  };
+
+  const handleRetryMessage = async (messageId: string) => {
+    // Find the message and resend it
+    const message = messages.find((m) => m.id === messageId);
+    if (message && message.role === 'assistant') {
+      // Find the previous user message
+      const messageIndex = messages.findIndex((m) => m.id === messageId);
+      if (messageIndex > 0) {
+        const userMessage = messages[messageIndex - 1];
+        if (userMessage.role === 'user') {
+          // Remove the AI message and retry
+          setMessages((prev) => prev.filter((m) => m.id !== messageId));
+          await handleSend(userMessage.content);
+        }
+      }
     }
   };
 
@@ -130,12 +223,21 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const characterCount = inputValue.length;
   const maxCharacters = 4000;
 
-  // Show loading state
+  // Show loading state with skeleton
   if (isLoading) {
     return (
-      <div className="flex flex-col h-[calc(100vh-280px)] bg-base-200 rounded-lg overflow-hidden items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p className="mt-4 text-base-content/60">Loading chat history...</p>
+      <div className="flex flex-col h-[calc(100vh-280px)] bg-base-200 rounded-lg overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <MessageSkeleton />
+          <MessageSkeleton />
+          <MessageSkeleton />
+        </div>
+        <div className="border-t border-base-300 bg-base-100 p-4">
+          <div className="flex items-center gap-2 text-base-content/60">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Loading chat history...</span>
+          </div>
+        </div>
       </div>
     );
   }
@@ -186,16 +288,12 @@ export default function ChatTab({ projectId }: ChatTabProps) {
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex gap-3 ${
+                className={`flex gap-3 group ${
                   message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
                 }`}
               >
                 {/* Avatar */}
-                <div
-                  className={`avatar ${
-                    message.role === 'user' ? 'placeholder' : ''
-                  }`}
-                >
+                <div className="flex-shrink-0">
                   <div
                     className={`w-10 h-10 rounded-full ${
                       message.role === 'user'
@@ -205,6 +303,8 @@ export default function ChatTab({ projectId }: ChatTabProps) {
                   >
                     {message.role === 'user' ? (
                       <User className="w-5 h-5" />
+                    ) : message.isStreaming ? (
+                      <Sparkles className="w-5 h-5 animate-pulse" />
                     ) : (
                       <Bot className="w-5 h-5" />
                     )}
@@ -213,7 +313,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
                 {/* Message Content */}
                 <div
-                  className={`flex flex-col max-w-[70%] ${
+                  className={`flex flex-col max-w-[75%] ${
                     message.role === 'user' ? 'items-end' : 'items-start'
                   }`}
                 >
@@ -222,35 +322,51 @@ export default function ChatTab({ projectId }: ChatTabProps) {
                       message.role === 'user'
                         ? 'chat-bubble-primary'
                         : 'chat-bubble-secondary'
-                    } px-4 py-3`}
+                    } ${
+                      message.status === 'error'
+                        ? 'border-2 border-error'
+                        : ''
+                    } px-4 py-3 relative`}
                   >
-                    <div className="prose prose-sm max-w-none">
-                      <ReactMarkdown
-                        components={{
-                          code({ inline, className, children }: CodeProps) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            return !inline && match ? (
-                              <SyntaxHighlighter
-                                style={vscDarkPlus}
-                                language={match[1]}
-                                PreTag="div"
-                              >
-                                {String(children).replace(/\n$/, '')}
-                              </SyntaxHighlighter>
-                            ) : (
-                              <code className={className}>
-                                {children}
-                              </code>
-                            );
-                          },
-                        }}
-                      >
+                    {message.role === 'assistant' ? (
+                      <StreamingMessage
+                        content={message.content}
+                        isStreaming={message.isStreaming || false}
+                        speed={8}
+                      />
+                    ) : (
+                      <div className="prose prose-sm max-w-none dark:prose-invert">
                         {message.content}
-                      </ReactMarkdown>
-                    </div>
+                      </div>
+                    )}
+
+                    {message.status === 'error' && message.metadata?.error && (
+                      <div className="text-xs text-error mt-2 flex items-center gap-1">
+                        <span>{message.metadata.error}</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-xs text-base-content/50 mt-1 px-2">
-                    {formatTimestamp(message.timestamp)}
+
+                  <div className="flex items-center gap-2 mt-1 px-2">
+                    <span className="text-xs text-base-content/50">
+                      {formatTimestamp(message.timestamp)}
+                    </span>
+
+                    {message.metadata?.processingTime && (
+                      <span className="text-xs text-base-content/40">
+                        • {(message.metadata.processingTime / 1000).toFixed(1)}s
+                      </span>
+                    )}
+
+                    <MessageActions
+                      content={message.content}
+                      role={message.role}
+                      onRetry={
+                        message.role === 'assistant'
+                          ? () => handleRetryMessage(message.id)
+                          : undefined
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -276,6 +392,14 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         )}
       </div>
 
+      {/* Quick Actions */}
+      {messages.length === 0 && !isLoading && (
+        <QuickActions
+          onActionClick={handleQuickAction}
+          disabled={isTyping}
+        />
+      )}
+
       {/* Input Area */}
       <div className="border-t border-base-300 bg-base-100 p-4">
         <div className="flex flex-col gap-2">
@@ -291,12 +415,16 @@ export default function ChatTab({ projectId }: ChatTabProps) {
               rows={1}
             />
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!inputValue.trim() || isTyping}
               className="btn btn-primary"
               title="Send message (Enter)"
             >
-              <Send className="w-5 h-5" />
+              {isTyping ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
             </button>
           </div>
           <div className="flex justify-between items-center text-xs text-base-content/50 px-1">

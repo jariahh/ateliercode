@@ -37,6 +37,7 @@ ignore = "0.4"
 # Process Management
 which = "5.0"
 regex = "1.10"
+portable-pty = "0.8"
 
 # AI Integration
 reqwest = { version = "0.11", features = ["json"] }

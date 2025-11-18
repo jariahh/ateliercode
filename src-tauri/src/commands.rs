@@ -7,7 +7,8 @@ use ignore::WalkBuilder;
 
 use crate::agents;
 use crate::db::Database;
-use crate::models::{Project, ChatMessage, Task, ActivityLog};
+use crate::file_watcher::FileWatcherManager;
+use crate::models::{Project, ChatMessage, Task, ActivityLog, FileChange};
 use crate::project_analyzer;
 use crate::types::{AgentInfo, CreateProjectInput, UpdateProjectInput, CreateTaskInput, UpdateTaskInput, ProjectStats, ProjectAnalysisResult};
 
@@ -778,6 +779,9 @@ pub async fn send_message(
 
     log::info!("User message saved: {}", user_message.id);
 
+    // Track processing time
+    let start_time = std::time::Instant::now();
+
     // Generate AI response using AI service
     let response_content = match generate_ai_response(&content).await {
         Ok(response) => response,
@@ -787,7 +791,18 @@ pub async fn send_message(
             generate_mock_response(&content)
         }
     };
-    let ai_message = ChatMessage::new(project_id.clone(), "assistant".to_string(), response_content);
+
+    let processing_time = start_time.elapsed().as_millis() as u64;
+
+    // Create AI message with metadata
+    let mut ai_message = ChatMessage::new(project_id.clone(), "assistant".to_string(), response_content);
+
+    // Add processing time to metadata
+    let metadata = serde_json::json!({
+        "processingTime": processing_time,
+        "model": "claude"
+    });
+    ai_message.metadata = Some(metadata.to_string());
 
     sqlx::query(
         r#"
@@ -1302,6 +1317,421 @@ async fn count_git_commits(path: &str) -> Result<usize> {
             Ok(0)
         }
     }
+}
+
+// ============================================================================
+// File Watcher Commands
+// ============================================================================
+
+/// Start watching a project for file changes
+#[tauri::command]
+pub async fn start_watching_project(
+    db: State<'_, Database>,
+    watcher: State<'_, FileWatcherManager>,
+    project_id: String,
+) -> Result<String, String> {
+    log::info!("Starting file watcher for project: {}", project_id);
+
+    // Get project to verify it exists and get the path
+    let project = get_project(db.clone(), project_id.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+
+    // Start watching
+    let session_id = watcher
+        .start_watching(project_id.clone(), project.root_path, db.pool().clone())
+        .await
+        .map_err(|e| format!("Failed to start watching: {}", e))?;
+
+    log::info!("File watcher started for project {} with session {}", project_id, session_id);
+    Ok(session_id)
+}
+
+/// Stop watching a project
+#[tauri::command]
+pub async fn stop_watching_project(
+    watcher: State<'_, FileWatcherManager>,
+    project_id: String,
+) -> Result<bool, String> {
+    log::info!("Stopping file watcher for project: {}", project_id);
+
+    watcher
+        .stop_watching(&project_id)
+        .map_err(|e| format!("Failed to stop watching: {}", e))?;
+
+    log::info!("File watcher stopped for project {}", project_id);
+    Ok(true)
+}
+
+/// Check if a project is being watched
+#[tauri::command]
+pub async fn is_watching_project(
+    watcher: State<'_, FileWatcherManager>,
+    project_id: String,
+) -> Result<bool, String> {
+    Ok(watcher.is_watching(&project_id))
+}
+
+/// Get pending file changes for a project
+#[tauri::command]
+pub async fn get_pending_changes(
+    db: State<'_, Database>,
+    project_id: String,
+) -> Result<Vec<FileChange>, String> {
+    log::info!("Fetching pending changes for project: {}", project_id);
+
+    let changes = sqlx::query_as::<_, FileChange>(
+        r#"
+        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
+        FROM file_changes
+        WHERE project_id = ? AND reviewed = FALSE
+        ORDER BY timestamp DESC
+        "#
+    )
+    .bind(&project_id)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch pending changes: {}", e))?;
+
+    log::info!("Found {} pending changes for project {}", changes.len(), project_id);
+    Ok(changes)
+}
+
+/// Get all file changes for a project (including reviewed ones)
+#[tauri::command]
+pub async fn get_all_changes(
+    db: State<'_, Database>,
+    project_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<FileChange>, String> {
+    log::info!("Fetching all changes for project: {}", project_id);
+
+    let limit_value = limit.unwrap_or(100).min(500);
+
+    let changes = sqlx::query_as::<_, FileChange>(
+        r#"
+        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
+        FROM file_changes
+        WHERE project_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        "#
+    )
+    .bind(&project_id)
+    .bind(limit_value)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch changes: {}", e))?;
+
+    log::info!("Found {} changes for project {}", changes.len(), project_id);
+    Ok(changes)
+}
+
+/// Approve a file change
+#[tauri::command]
+pub async fn approve_change(
+    db: State<'_, Database>,
+    change_id: String,
+) -> Result<FileChange, String> {
+    log::info!("Approving change: {}", change_id);
+
+    // Update the change
+    sqlx::query(
+        r#"
+        UPDATE file_changes
+        SET reviewed = TRUE, approved = TRUE
+        WHERE id = ?
+        "#
+    )
+    .bind(&change_id)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to approve change: {}", e))?;
+
+    // Fetch the updated change
+    let change = sqlx::query_as::<_, FileChange>(
+        r#"
+        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
+        FROM file_changes
+        WHERE id = ?
+        "#
+    )
+    .bind(&change_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch updated change: {}", e))?;
+
+    log::info!("Change approved: {}", change_id);
+    Ok(change)
+}
+
+/// Reject a file change
+#[tauri::command]
+pub async fn reject_change(
+    db: State<'_, Database>,
+    change_id: String,
+) -> Result<FileChange, String> {
+    log::info!("Rejecting change: {}", change_id);
+
+    // Update the change
+    sqlx::query(
+        r#"
+        UPDATE file_changes
+        SET reviewed = TRUE, approved = FALSE
+        WHERE id = ?
+        "#
+    )
+    .bind(&change_id)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to reject change: {}", e))?;
+
+    // Fetch the updated change
+    let change = sqlx::query_as::<_, FileChange>(
+        r#"
+        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
+        FROM file_changes
+        WHERE id = ?
+        "#
+    )
+    .bind(&change_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch updated change: {}", e))?;
+
+    log::info!("Change rejected: {}", change_id);
+    Ok(change)
+}
+
+/// Get the diff content for a file change
+#[tauri::command]
+pub async fn get_file_diff(
+    db: State<'_, Database>,
+    change_id: String,
+) -> Result<String, String> {
+    log::info!("Fetching diff for change: {}", change_id);
+
+    let change = sqlx::query_as::<_, FileChange>(
+        r#"
+        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
+        FROM file_changes
+        WHERE id = ?
+        "#
+    )
+    .bind(&change_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch change: {}", e))?;
+
+    Ok(change.diff.unwrap_or_default())
+}
+
+// ============================================================================
+// Agent Session Commands
+// ============================================================================
+
+/// Start an agent session for a project
+#[tauri::command]
+pub async fn start_agent_session(
+    db: State<'_, Database>,
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    project_id: String,
+    agent_type: String,
+) -> Result<crate::agent_manager::AgentSession, String> {
+    log::info!("Starting {} agent session for project: {}", agent_type, project_id);
+
+    // Get project to verify it exists and get the root path
+    let project = get_project(db.clone(), project_id.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+
+    // Start the agent session
+    let session = agent_manager
+        .start_session(project_id.clone(), agent_type.clone(), project.root_path.clone())
+        .await
+        .map_err(|e| format!("Failed to start agent session: {}", e))?;
+
+    // Save the session to the database
+    sqlx::query(
+        r#"
+        INSERT INTO agent_sessions (id, project_id, task_id, agent_type, started_at, ended_at, status, exit_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        "#
+    )
+    .bind(&session.session_id)
+    .bind(&session.project_id)
+    .bind::<Option<String>>(None) // task_id
+    .bind(&session.agent_type)
+    .bind(session.started_at)
+    .bind::<Option<i64>>(None) // ended_at
+    .bind("running")
+    .bind::<Option<i64>>(None) // exit_code
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to save agent session: {}", e))?;
+
+    // Log activity
+    let _ = log_activity(
+        db,
+        project_id,
+        "agent_start".to_string(),
+        format!("Started {} agent session", agent_type),
+        Some(serde_json::json!({
+            "session_id": session.session_id,
+            "agent_type": agent_type
+        }).to_string()),
+    ).await;
+
+    log::info!("Agent session started: {}", session.session_id);
+    Ok(session)
+}
+
+/// Send a message to an agent session
+#[tauri::command]
+pub async fn send_to_agent(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+    message: String,
+) -> Result<(), String> {
+    log::info!("Sending message to agent session {}: {}", session_id, message);
+
+    agent_manager
+        .send_message(&session_id, message)
+        .await
+        .map_err(|e| format!("Failed to send message: {}", e))?;
+
+    Ok(())
+}
+
+/// Read output from an agent session
+#[tauri::command]
+pub async fn read_agent_output(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+    timeout_ms: Option<u64>,
+) -> Result<Vec<String>, String> {
+    log::info!("Reading output from agent session: {}", session_id);
+
+    let output = if let Some(timeout) = timeout_ms {
+        agent_manager
+            .read_output_with_timeout(&session_id, timeout)
+            .await
+    } else {
+        agent_manager
+            .read_output(&session_id)
+            .await
+    }
+    .map_err(|e| format!("Failed to read output: {}", e))?;
+
+    Ok(output)
+}
+
+/// Stop an agent session
+#[tauri::command]
+pub async fn stop_agent_session(
+    db: State<'_, Database>,
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+) -> Result<(), String> {
+    log::info!("Stopping agent session: {}", session_id);
+
+    // Stop the session
+    agent_manager
+        .stop_session(&session_id)
+        .await
+        .map_err(|e| format!("Failed to stop session: {}", e))?;
+
+    // Update the session in the database
+    let now = chrono::Utc::now().timestamp();
+    sqlx::query(
+        r#"
+        UPDATE agent_sessions
+        SET ended_at = ?, status = 'stopped'
+        WHERE id = ?
+        "#
+    )
+    .bind(now)
+    .bind(&session_id)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to update agent session: {}", e))?;
+
+    log::info!("Agent session stopped: {}", session_id);
+    Ok(())
+}
+
+/// Get the status of an agent session
+#[tauri::command]
+pub async fn get_agent_status(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+) -> Result<crate::agent_manager::AgentSession, String> {
+    log::info!("Getting status for agent session: {}", session_id);
+
+    let session = agent_manager
+        .get_session_status(&session_id)
+        .await
+        .map_err(|e| format!("Failed to get session status: {}", e))?;
+
+    Ok(session)
+}
+
+/// List all active agent sessions
+#[tauri::command]
+pub async fn list_agent_sessions(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+) -> Result<Vec<crate::agent_manager::AgentSession>, String> {
+    log::info!("Listing all agent sessions");
+
+    let sessions = agent_manager.list_sessions().await;
+
+    Ok(sessions)
+}
+
+/// Check if an agent session is healthy
+#[tauri::command]
+pub async fn check_agent_health(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+) -> Result<bool, String> {
+    log::info!("Checking health for agent session: {}", session_id);
+
+    let is_healthy = agent_manager
+        .health_check(&session_id)
+        .await
+        .map_err(|e| format!("Failed to check health: {}", e))?;
+
+    Ok(is_healthy)
+}
+
+/// Parse agent output into structured events
+#[tauri::command]
+pub async fn parse_agent_output(
+    session_id: String,
+    agent_type: String,
+    output: Vec<String>,
+) -> Result<crate::agent_adapter::ParsedOutput, String> {
+    log::info!("Parsing output from {} agent session: {}", agent_type, session_id);
+
+    use crate::agent_adapter::AgentAdapter;
+
+    // Create the appropriate adapter based on agent type
+    let adapter: Box<dyn AgentAdapter> = match agent_type.to_lowercase().as_str() {
+        "claude" | "claude-code" => {
+            Box::new(crate::adapters::ClaudeCodeAdapter::new(session_id.clone()))
+        }
+        "aider" => {
+            Box::new(crate::agent_adapter::AiderAdapter::new(session_id.clone()))
+        }
+        _ => {
+            return Err(format!("Unsupported agent type: {}", agent_type));
+        }
+    };
+
+    // Parse the output
+    let parsed = adapter.parse_output(&session_id, &output);
+
+    Ok(parsed)
 }
 
 #[cfg(test)]
