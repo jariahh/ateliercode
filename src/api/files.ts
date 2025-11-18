@@ -21,7 +21,7 @@ export interface FileNode {
  */
 export async function readProjectFiles(projectId: string): Promise<FileNode[]> {
   try {
-    return await invoke<FileNode[]>('read_project_files', { project_id: projectId });
+    return await invoke<FileNode[]>('read_project_files', { projectId });
   } catch (error) {
     console.error('Failed to read project files:', error);
     throw error;
@@ -39,10 +39,7 @@ export async function readFileContent(
   filePath: string
 ): Promise<string> {
   try {
-    return await invoke<string>('read_file_content', {
-      project_id: projectId,
-      file_path: filePath
-    });
+    return await invoke<string>('read_file_content', { projectId, filePath });
   } catch (error) {
     console.error('Failed to read file content:', error);
     throw error;

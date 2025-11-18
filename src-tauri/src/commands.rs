@@ -493,7 +493,7 @@ pub struct FileNode {
 #[tauri::command]
 pub async fn read_project_files(
     db: State<'_, Database>,
-    project_id: String,
+    #[serde(rename = "projectId")] project_id: String,
 ) -> Result<Vec<FileNode>, String> {
     log::info!("Reading files for project: {}", project_id);
 
@@ -696,8 +696,8 @@ fn load_folder_children(folder_path: &Path, root_path: &Path) -> Vec<FileNode> {
 #[tauri::command]
 pub async fn read_file_content(
     db: State<'_, Database>,
-    project_id: String,
-    file_path: String,
+    #[serde(rename = "projectId")] project_id: String,
+    #[serde(rename = "filePath")] file_path: String,
 ) -> Result<String, String> {
     log::info!("Reading file content for project {}: {}", project_id, file_path);
 
@@ -996,7 +996,7 @@ pub async fn log_activity(
 #[tauri::command]
 pub async fn get_activities(
     db: State<'_, Database>,
-    project_id: String,
+    #[serde(rename = "projectId")] project_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<ActivityLog>, String> {
     log::info!("Fetching activities for project: {}", project_id);
@@ -1199,7 +1199,7 @@ Be concise and professional. Focus on what the project appears to do based on it
 #[tauri::command]
 pub async fn get_project_stats(
     db: State<'_, Database>,
-    project_id: String,
+    #[serde(rename = "projectId")] project_id: String,
 ) -> Result<ProjectStats, String> {
     log::info!("Fetching stats for project: {}", project_id);
 
