@@ -493,14 +493,15 @@ pub struct FileNode {
 #[tauri::command]
 pub async fn read_project_files(
     db: State<'_, Database>,
-    #[serde(rename = "projectId")] project_id: String,
+    #[allow(non_snake_case)]
+    projectId: String,
 ) -> Result<Vec<FileNode>, String> {
-    log::info!("Reading files for project: {}", project_id);
+    log::info!("Reading files for project: {}", projectId);
 
     // Get project from database to get the root path
-    let project = get_project(db.clone(), project_id.clone())
+    let project = get_project(db.clone(), projectId.clone())
         .await?
-        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+        .ok_or_else(|| format!("Project not found: {}", projectId))?;
 
     let root_path = Path::new(&project.root_path);
 
@@ -696,18 +697,20 @@ fn load_folder_children(folder_path: &Path, root_path: &Path) -> Vec<FileNode> {
 #[tauri::command]
 pub async fn read_file_content(
     db: State<'_, Database>,
-    #[serde(rename = "projectId")] project_id: String,
-    #[serde(rename = "filePath")] file_path: String,
+    #[allow(non_snake_case)]
+    projectId: String,
+    #[allow(non_snake_case)]
+    filePath: String,
 ) -> Result<String, String> {
-    log::info!("Reading file content for project {}: {}", project_id, file_path);
+    log::info!("Reading file content for project {}: {}", projectId, filePath);
 
     // Get project from database to verify it exists
-    let project = get_project(db, project_id.clone())
+    let project = get_project(db, projectId.clone())
         .await?
-        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+        .ok_or_else(|| format!("Project not found: {}", projectId))?;
 
     let root_path = Path::new(&project.root_path);
-    let target_path = Path::new(&file_path);
+    let target_path = Path::new(&filePath);
 
     // Security check: ensure the file is within the project directory
     let canonical_root = root_path
@@ -724,11 +727,11 @@ pub async fn read_file_content(
 
     // Check if file exists and is a file
     if !canonical_target.exists() {
-        return Err(format!("File not found: {}", file_path));
+        return Err(format!("File not found: {}", filePath));
     }
 
     if !canonical_target.is_file() {
-        return Err(format!("Path is not a file: {}", file_path));
+        return Err(format!("Path is not a file: {}", filePath));
     }
 
     // Read file content
@@ -740,7 +743,7 @@ pub async fn read_file_content(
         return Err("File too large to preview (max 10MB)".to_string());
     }
 
-    log::info!("Successfully read file: {} ({} bytes)", file_path, content.len());
+    log::info!("Successfully read file: {} ({} bytes)", filePath, content.len());
     Ok(content)
 }
 
@@ -996,10 +999,11 @@ pub async fn log_activity(
 #[tauri::command]
 pub async fn get_activities(
     db: State<'_, Database>,
-    #[serde(rename = "projectId")] project_id: String,
+    #[allow(non_snake_case)]
+    projectId: String,
     limit: Option<i64>,
 ) -> Result<Vec<ActivityLog>, String> {
-    log::info!("Fetching activities for project: {}", project_id);
+    log::info!("Fetching activities for project: {}", projectId);
 
     let limit_value = limit.unwrap_or(50).min(100); // Default 50, max 100
 
@@ -1012,13 +1016,13 @@ pub async fn get_activities(
         LIMIT ?
         "#
     )
-    .bind(&project_id)
+    .bind(&projectId)
     .bind(limit_value)
     .fetch_all(db.pool())
     .await
     .map_err(|e| format!("Failed to fetch activities: {}", e))?;
 
-    log::info!("Fetched {} activities for project {}", activities.len(), project_id);
+    log::info!("Fetched {} activities for project {}", activities.len(), projectId);
     Ok(activities)
 }
 
@@ -1199,14 +1203,15 @@ Be concise and professional. Focus on what the project appears to do based on it
 #[tauri::command]
 pub async fn get_project_stats(
     db: State<'_, Database>,
-    #[serde(rename = "projectId")] project_id: String,
+    #[allow(non_snake_case)]
+    projectId: String,
 ) -> Result<ProjectStats, String> {
-    log::info!("Fetching stats for project: {}", project_id);
+    log::info!("Fetching stats for project: {}", projectId);
 
     // Verify project exists
-    let project = get_project(db.clone(), project_id.clone())
+    let project = get_project(db.clone(), projectId.clone())
         .await?
-        .ok_or_else(|| format!("Project not found: {}", project_id))?;
+        .ok_or_else(|| format!("Project not found: {}", projectId))?;
 
     // Count distinct files changed
     let files_changed_result = sqlx::query_scalar::<_, i64>(
@@ -1216,7 +1221,7 @@ pub async fn get_project_stats(
         WHERE project_id = ?
         "#
     )
-    .bind(&project_id)
+    .bind(&projectId)
     .fetch_one(db.pool())
     .await;
 
@@ -1233,7 +1238,7 @@ pub async fn get_project_stats(
         WHERE project_id = ?
         "#
     )
-    .bind(&project_id)
+    .bind(&projectId)
     .fetch_one(db.pool())
     .await;
 
@@ -1247,7 +1252,7 @@ pub async fn get_project_stats(
         WHERE project_id = ? AND status = 'completed'
         "#
     )
-    .bind(&project_id)
+    .bind(&projectId)
     .fetch_one(db.pool())
     .await;
 
@@ -1261,7 +1266,7 @@ pub async fn get_project_stats(
         WHERE project_id = ?
         "#
     )
-    .bind(&project_id)
+    .bind(&projectId)
     .fetch_one(db.pool())
     .await;
 
