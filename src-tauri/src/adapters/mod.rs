@@ -1,3 +1,4 @@
 pub mod claude_adapter;
 
-pub use claude_adapter::ClaudeCodeAdapter;
+// TODO: Re-enable when agent commands are uncommented
+// pub use claude_adapter::ClaudeCodeAdapter;

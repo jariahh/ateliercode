@@ -277,9 +277,9 @@ impl AgentManager {
 
     /// Check if a session is healthy and restart if needed
     pub async fn health_check(&self, session_id: &str) -> Result<bool> {
-        let sessions = self.sessions.read().await;
+        let mut sessions = self.sessions.write().await;
         let running_session = sessions
-            .get(session_id)
+            .get_mut(session_id)
             .context("Session not found")?;
 
         // Check if the process is still running
