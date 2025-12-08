@@ -130,17 +130,29 @@ export default function ProjectWizard() {
     setIsAnalyzing(true);
 
     try {
-      // Call the AI-powered analysis command
-      const analysis = await invoke<ProjectAnalysisResult>('analyze_project_with_ai', {
+      // First, do basic directory analysis for file stats and git detection
+      const basicAnalysis = await invoke<ProjectAnalysisResult>('analyze_project_directory', {
         path: formData.path,
       });
+      setAiAnalysis(basicAnalysis);
+      updateFormData('initGit', !basicAnalysis.has_git);
 
-      setAiAnalysis(analysis);
+      // Then use the same AI generation logic as "Regenerate with AI" in settings
+      // This provides better, more contextual names and descriptions
+      const aiDetails = await invoke<{ name: string; description: string }>('generate_project_details', {
+        projectPath: formData.path,
+      });
 
-      // Auto-fill form with AI suggestions
-      updateFormData('name', analysis.suggested_name);
-      updateFormData('description', analysis.suggested_description);
-      updateFormData('initGit', !analysis.has_git); // Only init if doesn't have git
+      // Update with AI-generated name and description
+      updateFormData('name', aiDetails.name);
+      updateFormData('description', aiDetails.description);
+
+      // Update analysis with AI suggestions for display
+      setAiAnalysis(prev => prev ? {
+        ...prev,
+        suggested_name: aiDetails.name,
+        suggested_description: aiDetails.description,
+      } : basicAnalysis);
     } catch (error) {
       console.error('Failed to analyze project with AI:', error);
       // Fallback to basic analysis if AI fails
@@ -637,7 +649,7 @@ export default function ProjectWizard() {
 
   return (
     <div className="min-h-screen bg-base-100">
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="px-8 py-8">
         {/* Progress Steps */}
         <ul className="steps steps-horizontal w-full mb-12">
           {STEPS.map((step) => (

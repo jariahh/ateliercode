@@ -82,11 +82,11 @@ export default function Workspace() {
               <div className="space-y-1">
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">1</span>
-                  <span><span className="text-purple-400">import</span> <span className="text-blue-400">jwt</span> <span className="text-purple-400">from</span> <span className="text-green-400">'jsonwebtoken'</span>;</span>
+                  <span><span className="text-secondary">import</span> <span className="text-info">jwt</span> <span className="text-secondary">from</span> <span className="text-success">'jsonwebtoken'</span>;</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">2</span>
-                  <span><span className="text-purple-400">import</span> <span className="text-blue-400">{'{'} Request, Response, NextFunction {'}'}</span> <span className="text-purple-400">from</span> <span className="text-green-400">'express'</span>;</span>
+                  <span><span className="text-secondary">import</span> <span className="text-info">{'{'} Request, Response, NextFunction {'}'}</span> <span className="text-secondary">from</span> <span className="text-success">'express'</span>;</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">3</span>
@@ -94,19 +94,19 @@ export default function Workspace() {
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">4</span>
-                  <span><span className="text-purple-400">export</span> <span className="text-purple-400">const</span> <span className="text-yellow-400">verifyToken</span> = <span className="text-purple-400">async</span> (</span>
+                  <span><span className="text-secondary">export</span> <span className="text-secondary">const</span> <span className="text-accent">verifyToken</span> = <span className="text-secondary">async</span> (</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">5</span>
-                  <span>  <span className="text-orange-400">req</span>: <span className="text-blue-400">Request</span>,</span>
+                  <span>  <span className="text-warning">req</span>: <span className="text-info">Request</span>,</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">6</span>
-                  <span>  <span className="text-orange-400">res</span>: <span className="text-blue-400">Response</span>,</span>
+                  <span>  <span className="text-warning">res</span>: <span className="text-info">Response</span>,</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">7</span>
-                  <span>  <span className="text-orange-400">next</span>: <span className="text-blue-400">NextFunction</span></span>
+                  <span>  <span className="text-warning">next</span>: <span className="text-info">NextFunction</span></span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">8</span>
@@ -114,7 +114,7 @@ export default function Workspace() {
                 </div>
                 <div className="flex gap-4 bg-warning/10">
                   <span className="text-base-content/40 w-8 text-right">9</span>
-                  <span>  <span className="text-purple-400">const</span> token = req.<span className="text-yellow-400">headers</span>.<span className="text-yellow-400">authorization</span>?.<span className="text-yellow-400">split</span>(<span className="text-green-400">' '</span>)[<span className="text-blue-400">1</span>];</span>
+                  <span>  <span className="text-secondary">const</span> token = req.<span className="text-accent">headers</span>.<span className="text-accent">authorization</span>?.<span className="text-accent">split</span>(<span className="text-success">' '</span>)[<span className="text-info">1</span>];</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">10</span>
@@ -122,11 +122,11 @@ export default function Workspace() {
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">11</span>
-                  <span>  <span className="text-purple-400">if</span> (!token) {'{'}</span>
+                  <span>  <span className="text-secondary">if</span> (!token) {'{'}</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">12</span>
-                  <span>    <span className="text-purple-400">return</span> res.<span className="text-yellow-400">status</span>(<span className="text-blue-400">401</span>).<span className="text-yellow-400">json</span>({'{'} <span className="text-orange-400">error</span>: <span className="text-green-400">'No token provided'</span> {'}'});</span>
+                  <span>    <span className="text-secondary">return</span> res.<span className="text-accent">status</span>(<span className="text-info">401</span>).<span className="text-accent">json</span>({'{'} <span className="text-warning">error</span>: <span className="text-success">'No token provided'</span> {'}'});</span>
                 </div>
                 <div className="flex gap-4">
                   <span className="text-base-content/40 w-8 text-right">13</span>

@@ -23,6 +23,10 @@ export interface Project {
   tags?: string[];
   gitRepo?: string;
   branch?: string;
+  /** Project icon (emoji, icon name, or path to custom icon) */
+  icon?: string;
+  /** Project color for theming (e.g., "purple", "blue", "green") */
+  color?: string;
 }
 
 export interface CreateProjectInput {

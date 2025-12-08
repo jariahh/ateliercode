@@ -12,8 +12,8 @@ export async function logActivity(
   data?: string
 ): Promise<ActivityLog> {
   return await invoke<ActivityLog>('log_activity', {
-    project_id: projectId,
-    event_type: eventType,
+    projectId,
+    eventType,
     description,
     data,
   });
@@ -29,7 +29,7 @@ export async function getActivities(
   limit?: number
 ): Promise<ActivityLog[]> {
   return await invoke<ActivityLog[]>('get_activities', {
-    project_id: projectId,
+    projectId,
     limit,
   });
 }

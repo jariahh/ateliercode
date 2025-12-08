@@ -11,6 +11,10 @@ export interface Project {
   created_at: number;
   last_activity: number;
   settings: string | null;
+  /** Project icon (emoji, icon name, or path to custom icon) */
+  icon: string | null;
+  /** Project color for theming (e.g., "purple", "blue", "green") */
+  color: string | null;
 }
 
 export interface CreateProjectInput {
@@ -28,6 +32,10 @@ export interface UpdateProjectInput {
   status?: string;
   prd_content?: string;
   settings?: string;
+  /** Project icon (emoji, icon name, or path to custom icon) */
+  icon?: string;
+  /** Project color for theming (e.g., "purple", "blue", "green") */
+  color?: string;
 }
 
 export interface AgentInfo {
@@ -74,6 +82,7 @@ export interface UpdateTaskInput {
 export interface ChatMessage {
   id: string;
   project_id: string;
+  session_id: string | null;
   role: string;
   content: string;
   timestamp: number;

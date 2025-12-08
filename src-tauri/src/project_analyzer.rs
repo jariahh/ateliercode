@@ -373,6 +373,91 @@ fn detect_python_frameworks(project_path: &Path) -> Option<Vec<String>> {
     }
 }
 
+/// Format a project name into proper title case
+/// Handles kebab-case, snake_case, and camelCase
+fn format_project_name(name: &str) -> String {
+    // Split on common delimiters: -, _, space
+    let words: Vec<String> = name
+        .split(|c| c == '-' || c == '_' || c == ' ')
+        .filter(|s| !s.is_empty())
+        .map(|word| {
+            // Capitalize first letter, lowercase the rest
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => {
+                    let rest: String = chars.as_str().to_lowercase();
+                    format!("{}{}", first.to_uppercase(), rest)
+                }
+                None => String::new(),
+            }
+        })
+        .collect();
+
+    // Join with spaces
+    words.join(" ")
+}
+
+/// Extract the actual project name from package.json, Cargo.toml, or other config files
+pub fn extract_project_name(project_path: &Path) -> Option<String> {
+    // Try package.json first
+    let package_json_path = project_path.join("package.json");
+    if let Ok(content) = fs::read_to_string(package_json_path) {
+        if let Ok(json) = serde_json::from_str::<Value>(&content) {
+            if let Some(name) = json.get("name").and_then(|n| n.as_str()) {
+                // Format the name into title case
+                return Some(format_project_name(name));
+            }
+        }
+    }
+
+    // Try Cargo.toml
+    let cargo_toml_path = project_path.join("Cargo.toml");
+    if let Ok(content) = fs::read_to_string(cargo_toml_path) {
+        // Simple regex-like parsing for [package] name = "..."
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("name") && trimmed.contains('=') {
+                if let Some(name_part) = trimmed.split('=').nth(1) {
+                    let name = name_part.trim().trim_matches('"').trim_matches('\'');
+                    if !name.is_empty() {
+                        return Some(format_project_name(name));
+                    }
+                }
+            }
+        }
+    }
+
+    // Try pyproject.toml
+    let pyproject_path = project_path.join("pyproject.toml");
+    if let Ok(content) = fs::read_to_string(pyproject_path) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("name") && trimmed.contains('=') {
+                if let Some(name_part) = trimmed.split('=').nth(1) {
+                    let name = name_part.trim().trim_matches('"').trim_matches('\'');
+                    if !name.is_empty() {
+                        return Some(format_project_name(name));
+                    }
+                }
+            }
+        }
+    }
+
+    // Try composer.json for PHP
+    let composer_json_path = project_path.join("composer.json");
+    if let Ok(content) = fs::read_to_string(composer_json_path) {
+        if let Ok(json) = serde_json::from_str::<Value>(&content) {
+            if let Some(name) = json.get("name").and_then(|n| n.as_str()) {
+                // composer names are usually "vendor/project", extract project part
+                let project_name = name.split('/').last().unwrap_or(name);
+                return Some(format_project_name(project_name));
+            }
+        }
+    }
+
+    None
+}
+
 /// Generate a project description based on detected languages and frameworks
 fn generate_description(
     languages: &[String],

@@ -26,23 +26,31 @@ log = "0.4"
 env_logger = "0.11"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "migrate"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
+refinery = { version = "0.8", features = ["rusqlite"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1.10", features = ["v4", "serde"] }
 
 # File System
 notify = "6.0"
 walkdir = "2.4"
 ignore = "0.4"
+dirs = "5.0"
 
 # Process Management
 which = "5.0"
 regex = "1.10"
 portable-pty = "0.8"
+strip-ansi-escapes = "0.2"
 
 # AI Integration
 reqwest = { version = "0.11", features = ["json"] }
 futures = "0.3"
 async-trait = "0.1"
+
+# Plugin System
+libloading = "0.8"
+toml = "0.8"
 
 [features]
 # This feature is used for production builds or when `devPath` points to the filesystem

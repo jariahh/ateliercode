@@ -8,7 +8,7 @@ use ignore::WalkBuilder;
 use crate::agents;
 use crate::db::Database;
 use crate::file_watcher::FileWatcherManager;
-use crate::models::{Project, ChatMessage, Task, ActivityLog, FileChange};
+use crate::models::{Project, ChatMessage, Task, ActivityLog, FileChange, ChatTab};
 use crate::project_analyzer;
 use crate::types::{AgentInfo, CreateProjectInput, UpdateProjectInput, CreateTaskInput, UpdateTaskInput, ProjectStats, ProjectAnalysisResult};
 
@@ -67,7 +67,7 @@ pub async fn get_projects(db: State<'_, Database>) -> Result<Vec<Project>, Strin
 
     let projects = sqlx::query_as::<_, Project>(
         r#"
-        SELECT id, name, root_path, agent_type, status, prd_content, created_at, last_activity, settings
+        SELECT id, name, root_path, agent_type, status, prd_content, created_at, last_activity, settings, icon, color
         FROM projects
         ORDER BY last_activity DESC
         "#
@@ -87,7 +87,7 @@ pub async fn get_project(db: State<'_, Database>, id: String) -> Result<Option<P
 
     let project = sqlx::query_as::<_, Project>(
         r#"
-        SELECT id, name, root_path, agent_type, status, prd_content, created_at, last_activity, settings
+        SELECT id, name, root_path, agent_type, status, prd_content, created_at, last_activity, settings, icon, color
         FROM projects
         WHERE id = ?
         "#
@@ -104,6 +104,40 @@ pub async fn get_project(db: State<'_, Database>, id: String) -> Result<Option<P
     }
 
     Ok(project)
+}
+
+/// Check if a project has recent activity (within last 30 seconds)
+#[tauri::command]
+pub async fn has_recent_activity(db: State<'_, Database>, project_id: String) -> Result<bool, String> {
+    let project = sqlx::query_as::<_, Project>(
+        "SELECT id, name, root_path, agent_type, status, prd_content, created_at, last_activity, settings, icon, color
+         FROM projects
+         WHERE id = ?"
+    )
+    .bind(&project_id)
+    .fetch_optional(db.pool())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Some(project) = project {
+        let now = chrono::Utc::now().timestamp();
+        let threshold = 30; // 30 seconds
+        let time_since_activity = now - project.last_activity;
+        let has_activity = time_since_activity <= threshold;
+
+        log::debug!(
+            "Activity check for project {}: last_activity={}, now={}, diff={}s, active={}",
+            project.name,
+            project.last_activity,
+            now,
+            time_since_activity,
+            has_activity
+        );
+
+        Ok(has_activity)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Update a project
@@ -139,6 +173,12 @@ pub async fn update_project(
     if let Some(settings) = updates.settings {
         project.settings = Some(settings);
     }
+    if let Some(icon) = updates.icon {
+        project.icon = Some(icon);
+    }
+    if let Some(color) = updates.color {
+        project.color = Some(color);
+    }
 
     // Update last_activity
     project.last_activity = chrono::Utc::now().timestamp();
@@ -147,7 +187,7 @@ pub async fn update_project(
     sqlx::query(
         r#"
         UPDATE projects
-        SET name = ?, root_path = ?, agent_type = ?, status = ?, prd_content = ?, last_activity = ?, settings = ?
+        SET name = ?, root_path = ?, agent_type = ?, status = ?, prd_content = ?, last_activity = ?, settings = ?, icon = ?, color = ?
         WHERE id = ?
         "#
     )
@@ -158,6 +198,8 @@ pub async fn update_project(
     .bind(&project.prd_content)
     .bind(project.last_activity)
     .bind(&project.settings)
+    .bind(&project.icon)
+    .bind(&project.color)
     .bind(&id)
     .execute(db.pool())
     .await
@@ -189,18 +231,32 @@ pub async fn delete_project(db: State<'_, Database>, id: String) -> Result<bool,
     Ok(deleted)
 }
 
-/// Detect installed AI coding agents
+/// Detect installed AI coding agents from plugins
 #[tauri::command]
-pub async fn detect_agents() -> Result<Vec<AgentInfo>, String> {
-    log::info!("Detecting installed agents");
+pub async fn detect_agents(
+    plugin_manager: tauri::State<'_, crate::plugin::PluginManager>,
+) -> Result<Vec<AgentInfo>, String> {
+    log::info!("Detecting installed agents from plugin system");
 
-    let agents = agents::detect_all_agents().await;
+    // Get all loaded plugins
+    let plugins = plugin_manager.list_plugins();
 
-    log::info!(
-        "Detected {} agents ({} installed)",
-        agents.len(),
-        agents.iter().filter(|a| a.installed).count()
-    );
+    // Convert PluginInfo to AgentInfo
+    let agents: Vec<AgentInfo> = plugins
+        .into_iter()
+        .map(|plugin| AgentInfo {
+            name: plugin.name.clone(),
+            command: plugin.name.clone(), // Plugin name as command identifier
+            installed: true, // If it's in the plugin manager, it's installed
+            version: Some(plugin.version),
+            display_name: Some(plugin.display_name),
+            description: Some(plugin.description),
+            icon: plugin.icon,
+            color: plugin.color,
+        })
+        .collect();
+
+    log::info!("Detected {} agents from {} loaded plugins", agents.len(), agents.len());
 
     Ok(agents)
 }
@@ -567,7 +623,7 @@ pub async fn read_project_files(
     let activity_count = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM activity_log WHERE project_id = ? AND event_type = 'file_change'"
     )
-    .bind(&project_id)
+    .bind(&projectId)
     .fetch_one(db.pool())
     .await
     .unwrap_or(0);
@@ -576,7 +632,7 @@ pub async fn read_project_files(
     if activity_count == 0 && !root_nodes.is_empty() {
         let _ = log_activity(
             db,
-            project_id,
+            projectId,
             "file_change".to_string(),
             format!("Project files loaded ({} items)", root_nodes.len()),
             Some(serde_json::json!({
@@ -753,25 +809,32 @@ pub async fn send_message(
     db: State<'_, Database>,
     project_id: String,
     content: String,
+    session_id: Option<String>,
 ) -> Result<ChatMessage, String> {
-    log::info!("Sending message for project: {}", project_id);
+    log::info!("Sending message for project: {} (session: {:?})", project_id, session_id);
 
     // Verify project exists
     get_project(db.clone(), project_id.clone())
         .await?
         .ok_or_else(|| format!("Project not found: {}", project_id))?;
 
-    // Create and save user message
-    let user_message = ChatMessage::new(project_id.clone(), "user".to_string(), content.clone());
+    // Create and save user message with session_id
+    let user_message = ChatMessage::new_with_session(
+        project_id.clone(),
+        session_id.clone(),
+        "user".to_string(),
+        content.clone(),
+    );
 
     sqlx::query(
         r#"
-        INSERT INTO chat_messages (id, project_id, role, content, timestamp, metadata)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO chat_messages (id, project_id, session_id, role, content, timestamp, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         "#
     )
     .bind(&user_message.id)
     .bind(&user_message.project_id)
+    .bind(&user_message.session_id)
     .bind(&user_message.role)
     .bind(&user_message.content)
     .bind(user_message.timestamp)
@@ -780,7 +843,7 @@ pub async fn send_message(
     .await
     .map_err(|e| format!("Failed to save user message: {}", e))?;
 
-    log::info!("User message saved: {}", user_message.id);
+    log::info!("User message saved: {} (session: {:?})", user_message.id, session_id);
 
     // Track processing time
     let start_time = std::time::Instant::now();
@@ -797,8 +860,13 @@ pub async fn send_message(
 
     let processing_time = start_time.elapsed().as_millis() as u64;
 
-    // Create AI message with metadata
-    let mut ai_message = ChatMessage::new(project_id.clone(), "assistant".to_string(), response_content);
+    // Create AI message with metadata and session_id
+    let mut ai_message = ChatMessage::new_with_session(
+        project_id.clone(),
+        session_id.clone(),
+        "assistant".to_string(),
+        response_content,
+    );
 
     // Add processing time to metadata
     let metadata = serde_json::json!({
@@ -809,12 +877,13 @@ pub async fn send_message(
 
     sqlx::query(
         r#"
-        INSERT INTO chat_messages (id, project_id, role, content, timestamp, metadata)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO chat_messages (id, project_id, session_id, role, content, timestamp, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         "#
     )
     .bind(&ai_message.id)
     .bind(&ai_message.project_id)
+    .bind(&ai_message.session_id)
     .bind(&ai_message.role)
     .bind(&ai_message.content)
     .bind(ai_message.timestamp)
@@ -823,7 +892,7 @@ pub async fn send_message(
     .await
     .map_err(|e| format!("Failed to save AI message: {}", e))?;
 
-    log::info!("AI message saved: {}", ai_message.id);
+    log::info!("AI message saved: {} (session: {:?})", ai_message.id, session_id);
 
     // Update project last activity
     sqlx::query("UPDATE projects SET last_activity = ? WHERE id = ?")
@@ -851,7 +920,7 @@ pub async fn send_message(
     Ok(ai_message)
 }
 
-/// Get all chat messages for a project
+/// Get all chat messages for a project (limited to most recent 20)
 #[tauri::command]
 pub async fn get_messages(
     db: State<'_, Database>,
@@ -859,12 +928,14 @@ pub async fn get_messages(
 ) -> Result<Vec<ChatMessage>, String> {
     log::info!("Fetching messages for project: {}", project_id);
 
-    let messages = sqlx::query_as::<_, ChatMessage>(
+    // Get last 20 messages
+    let mut messages = sqlx::query_as::<_, ChatMessage>(
         r#"
-        SELECT id, project_id, role, content, timestamp, metadata
+        SELECT id, project_id, session_id, role, content, timestamp, metadata
         FROM chat_messages
         WHERE project_id = ?
-        ORDER BY timestamp ASC
+        ORDER BY timestamp DESC
+        LIMIT 20
         "#
     )
     .bind(&project_id)
@@ -872,8 +943,157 @@ pub async fn get_messages(
     .await
     .map_err(|e| format!("Failed to fetch messages: {}", e))?;
 
-    log::info!("Fetched {} messages", messages.len());
+    messages.reverse();
+    log::info!("Fetched {} messages for project", messages.len());
     Ok(messages)
+}
+
+/// Get chat messages for a specific session (limited to most recent 20)
+#[tauri::command]
+pub async fn get_session_messages(
+    db: State<'_, Database>,
+    session_id: String,
+) -> Result<Vec<ChatMessage>, String> {
+    log::info!("Fetching messages for session: {}", session_id);
+
+    let messages = sqlx::query_as::<_, ChatMessage>(
+        r#"
+        SELECT id, project_id, session_id, role, content, timestamp, metadata
+        FROM chat_messages
+        WHERE session_id = ?
+        ORDER BY timestamp DESC
+        LIMIT 20
+        "#
+    )
+    .bind(&session_id)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch session messages: {}", e))?;
+
+    // Reverse to get chronological order (oldest first)
+    let mut messages = messages;
+    messages.reverse();
+
+    log::info!("Fetched {} messages for session {} (limited to 20)", messages.len(), session_id);
+    Ok(messages)
+}
+
+/// Get project messages, optionally filtered by session (limited to most recent 20)
+#[tauri::command]
+pub async fn get_project_messages(
+    db: State<'_, Database>,
+    project_id: String,
+    session_id: Option<String>,
+) -> Result<Vec<ChatMessage>, String> {
+    if let Some(sid) = session_id {
+        log::info!("Fetching messages for project {} and session {}", project_id, sid);
+
+        let messages = sqlx::query_as::<_, ChatMessage>(
+            r#"
+            SELECT id, project_id, session_id, role, content, timestamp, metadata
+            FROM chat_messages
+            WHERE project_id = ? AND session_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 20
+            "#
+        )
+        .bind(&project_id)
+        .bind(&sid)
+        .fetch_all(db.pool())
+        .await
+        .map_err(|e| format!("Failed to fetch messages: {}", e))?;
+
+        // Reverse to get chronological order (oldest first)
+        let mut messages = messages;
+        messages.reverse();
+
+        log::info!("Fetched {} messages for project {} and session {} (limited to 20)", messages.len(), project_id, sid);
+        Ok(messages)
+    } else {
+        log::info!("Fetching all messages for project: {}", project_id);
+        get_messages(db, project_id).await
+    }
+}
+
+/// Count total messages for a session (not limited)
+#[tauri::command]
+pub async fn count_session_messages(
+    db: State<'_, Database>,
+    session_id: String,
+) -> Result<i64, String> {
+    log::info!("Counting messages for session: {}", session_id);
+
+    let count = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM chat_messages
+        WHERE session_id = ?
+        "#
+    )
+    .bind(&session_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to count session messages: {}", e))?;
+
+    log::info!("Session {} has {} messages", session_id, count);
+    Ok(count)
+}
+
+/// Save a message with session context
+#[tauri::command]
+pub async fn save_message(
+    db: State<'_, Database>,
+    project_id: String,
+    session_id: Option<String>,
+    role: String,
+    content: String,
+    metadata: Option<String>,
+) -> Result<ChatMessage, String> {
+    log::info!("Saving {} message for project: {}, session: {:?}", role, project_id, session_id);
+
+    // Create message with session context
+    let mut message = ChatMessage::new_with_session(
+        project_id.clone(),
+        session_id.clone(),
+        role,
+        content,
+    );
+
+    // Set metadata if provided
+    if let Some(meta) = metadata {
+        message.metadata = Some(meta);
+    }
+
+    // Insert into database
+    sqlx::query(
+        r#"
+        INSERT INTO chat_messages (id, project_id, session_id, role, content, timestamp, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        "#
+    )
+    .bind(&message.id)
+    .bind(&message.project_id)
+    .bind(&message.session_id)
+    .bind(&message.role)
+    .bind(&message.content)
+    .bind(message.timestamp)
+    .bind(&message.metadata)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to save message: {}", e))?;
+
+    // Update project last activity
+    sqlx::query("UPDATE projects SET last_activity = ? WHERE id = ?")
+        .bind(message.timestamp)
+        .bind(&project_id)
+        .execute(db.pool())
+        .await
+        .map_err(|e| format!("Failed to update project activity: {}", e))?;
+
+    log::debug!("Updated last_activity for project {} to {}", project_id, message.timestamp);
+
+    log::info!("Message saved: {}", message.id);
+    Ok(message)
 }
 
 /// Generate AI response using the AI service
@@ -1005,7 +1225,7 @@ pub async fn get_activities(
 ) -> Result<Vec<ActivityLog>, String> {
     log::info!("Fetching activities for project: {}", projectId);
 
-    let limit_value = limit.unwrap_or(50).min(100); // Default 50, max 100
+    let limit_value = limit.unwrap_or(30).min(100); // Default 30, max 100
 
     let activities = sqlx::query_as::<_, ActivityLog>(
         r#"
@@ -1193,6 +1413,239 @@ Be concise and professional. Focus on what the project appears to do based on it
             Ok(analysis)
         }
     }
+}
+
+/// Generate project details (name and description) from project files
+/// This is used in the UI modal to preview AI-generated details before applying
+#[tauri::command]
+pub async fn generate_project_details(
+    project_path: String,
+) -> Result<crate::types::AIProjectDetails, String> {
+    log::info!("Generating project details for: {}", project_path);
+
+    let path = std::path::Path::new(&project_path);
+
+    // Gather context from various files
+    let mut context_parts = Vec::new();
+
+    // Read package.json for name, productName, and description
+    let package_json_path = path.join("package.json");
+    if let Ok(content) = std::fs::read_to_string(&package_json_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(product_name) = json.get("productName").and_then(|n| n.as_str()) {
+                context_parts.push(format!("Product name: {}", product_name));
+            }
+            if let Some(name) = json.get("name").and_then(|n| n.as_str()) {
+                context_parts.push(format!("Package name: {}", name));
+            }
+            if let Some(desc) = json.get("description").and_then(|d| d.as_str()) {
+                if !desc.is_empty() {
+                    context_parts.push(format!("Package description: {}", desc));
+                }
+            }
+        }
+    }
+
+    // Read Cargo.toml for Rust projects
+    let cargo_toml_path = path.join("Cargo.toml");
+    if let Ok(content) = std::fs::read_to_string(&cargo_toml_path) {
+        context_parts.push("Rust/Cargo project detected".to_string());
+        // Try to extract description from Cargo.toml
+        for line in content.lines() {
+            if line.trim().starts_with("description") {
+                if let Some(desc) = line.split('=').nth(1) {
+                    let clean_desc = desc.trim().trim_matches('"').trim_matches('\'');
+                    context_parts.push(format!("Cargo description: {}", clean_desc));
+                }
+            }
+        }
+    }
+
+    // Read README files (try multiple variations)
+    let mut readme_found = false;
+    for readme_name in &["README.md", "readme.md", "Readme.md", "README.txt"] {
+        let readme_path = path.join(readme_name);
+        if let Ok(content) = std::fs::read_to_string(&readme_path) {
+            let preview: String = content.chars().take(1500).collect();
+            context_parts.push(format!("README: {}", preview));
+            readme_found = true;
+            break;
+        }
+    }
+
+    // If no standard README found, look for any markdown files that might describe the project
+    if !readme_found {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            let mut doc_files: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    if let Some(name) = e.file_name().to_str() {
+                        let name_upper = name.to_uppercase();
+                        // Look for files that might contain project info
+                        (name_upper.starts_with("README") ||
+                         name_upper.contains("OVERVIEW") ||
+                         name_upper.contains("ABOUT") ||
+                         name_upper.contains("INTRO")) &&
+                        name.ends_with(".md")
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+
+            // Sort by name to get consistent results
+            doc_files.sort_by_key(|e| e.file_name());
+
+            // Read the first matching doc file
+            if let Some(doc_file) = doc_files.first() {
+                if let Ok(content) = std::fs::read_to_string(doc_file.path()) {
+                    let preview: String = content.chars().take(1500).collect();
+                    if let Some(name) = doc_file.file_name().to_str() {
+                        context_parts.push(format!("Documentation from {}: {}", name, preview));
+                    }
+                }
+            }
+        }
+    }
+
+    // Get project analysis for tech stack
+    let project_path_clone = project_path.clone();
+    let analysis = tokio::task::spawn_blocking(move || {
+        project_analyzer::analyze_project(&project_path_clone)
+    })
+    .await
+    .map_err(|e| format!("Failed to analyze project: {}", e))?
+    .map_err(|e| format!("Project analysis failed: {}", e))?;
+
+    context_parts.push(format!("Languages: {}", analysis.detected_languages.join(", ")));
+    context_parts.push(format!("Frameworks: {}", analysis.detected_frameworks.join(", ")));
+
+    // Build AI prompt
+    let context = context_parts.join("\n");
+    let prompt = format!(
+        r#"You are analyzing a software project. Based on the information provided, determine the proper display name and create a clear description.
+
+Project Information:
+{}
+
+Instructions:
+1. Determine the display name:
+   - If a "Product name" is listed, use that (it's the user-facing name)
+   - Otherwise, use the most meaningful name you can find from the README or documentation
+   - Convert technical names to proper Title Case (e.g., "ateliercode" → "Atelier Code")
+   - Avoid using npm package names like "@scope/package" - extract the meaningful part
+
+2. Write a concise description (1-2 sentences):
+   - Explain what the application actually does for end users
+   - Focus on the main purpose and value, not technical details
+   - Base this on README content and documentation
+
+Format your response EXACTLY as shown below (use these exact prefixes):
+NAME: Your Project Name
+DESCRIPTION: Your project description here.
+
+Example good responses:
+NAME: Atelier Code
+DESCRIPTION: A desktop application for managing AI-assisted software development workflows.
+
+NAME: Remote Portals
+DESCRIPTION: A secure streaming platform for remote medical imaging and diagnostics."#,
+        context
+    );
+
+    log::info!("========== AI PROMPT ==========");
+    log::info!("{}", prompt);
+    log::info!("==============================");
+
+    // Try to use AI service
+    use crate::ai_service::{AIService, ChatMessage};
+    let ai_service = AIService::from_env();
+
+    let (name, description) = if ai_service.is_available() {
+        log::info!("AI service available, generating intelligent details");
+
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: prompt,
+        }];
+
+        match ai_service.chat_completion(messages).await {
+            Ok(response) => {
+                log::info!("========== AI RESPONSE ==========");
+                log::info!("{}", response);
+                log::info!("=================================");
+
+                // Parse the AI response - try multiple formats
+                let mut parsed_name = String::new();
+                let mut parsed_description = String::new();
+
+                for line in response.lines() {
+                    let line_upper = line.to_uppercase();
+
+                    // Try "NAME:" prefix (case insensitive)
+                    if line_upper.starts_with("NAME:") {
+                        parsed_name = line[5..].trim().to_string();
+                        log::info!("Parsed name from 'NAME:' line: '{}'", parsed_name);
+                    }
+                    // Try "DESCRIPTION:" prefix (case insensitive)
+                    else if line_upper.starts_with("DESCRIPTION:") {
+                        parsed_description = line[12..].trim().to_string();
+                        log::info!("Parsed description from 'DESCRIPTION:' line: '{}'", parsed_description);
+                    }
+                    // Also try to continue multiline descriptions
+                    else if !parsed_description.is_empty() && !line.trim().is_empty() && !line_upper.starts_with("NAME") {
+                        parsed_description.push(' ');
+                        parsed_description.push_str(line.trim());
+                    }
+                }
+
+                log::info!("Parsed results - name: '{}', description: '{}'", parsed_name, parsed_description);
+
+                // Fallback if parsing failed
+                if parsed_name.is_empty() {
+                    log::warn!("Failed to parse NAME from AI response, using fallback");
+                    parsed_name = project_analyzer::extract_project_name(path)
+                        .unwrap_or_else(|| path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("My Project")
+                            .to_string());
+                }
+
+                if parsed_description.is_empty() {
+                    log::warn!("Failed to parse DESCRIPTION from AI response, using fallback");
+                    parsed_description = analysis.suggested_description;
+                }
+
+                (parsed_name, parsed_description)
+            }
+            Err(e) => {
+                log::warn!("AI generation failed: {}, using fallback", e);
+                // Fallback to basic extraction
+                let name = project_analyzer::extract_project_name(path)
+                    .unwrap_or_else(|| path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("My Project")
+                        .to_string());
+                (name, analysis.suggested_description)
+            }
+        }
+    } else {
+        log::info!("AI service not available, using basic extraction");
+        // Fallback to basic extraction
+        let name = project_analyzer::extract_project_name(path)
+            .unwrap_or_else(|| path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("My Project")
+                .to_string());
+        (name, analysis.suggested_description)
+    };
+
+    log::info!("Generated details - name: '{}', description: '{}'", name, description);
+
+    Ok(crate::types::AIProjectDetails {
+        name,
+        description,
+    })
 }
 
 // ============================================================================
@@ -1532,11 +1985,174 @@ pub async fn get_file_diff(
 }
 
 // ============================================================================
+// Review Comment Commands
+// ============================================================================
+
+/// Add a review comment to a file change
+#[tauri::command]
+pub async fn add_review_comment(
+    db: State<'_, Database>,
+    file_change_id: String,
+    author: String,
+    comment: String,
+    line_number: Option<i64>,
+) -> Result<crate::models::ReviewComment, String> {
+    log::info!("Adding review comment to file change: {}", file_change_id);
+
+    let review_comment = crate::models::ReviewComment::new(
+        file_change_id.clone(),
+        author,
+        comment,
+        line_number,
+    );
+
+    sqlx::query(
+        r#"
+        INSERT INTO review_comments (id, file_change_id, line_number, author, comment, timestamp, resolved)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        "#
+    )
+    .bind(&review_comment.id)
+    .bind(&review_comment.file_change_id)
+    .bind(&review_comment.line_number)
+    .bind(&review_comment.author)
+    .bind(&review_comment.comment)
+    .bind(review_comment.timestamp)
+    .bind(review_comment.resolved)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to add review comment: {}", e))?;
+
+    log::info!("Review comment added successfully: {}", review_comment.id);
+    Ok(review_comment)
+}
+
+/// Get all review comments for a file change
+#[tauri::command]
+pub async fn get_review_comments(
+    db: State<'_, Database>,
+    file_change_id: String,
+) -> Result<Vec<crate::models::ReviewComment>, String> {
+    log::info!("Fetching review comments for file change: {}", file_change_id);
+
+    let comments = sqlx::query_as::<_, crate::models::ReviewComment>(
+        r#"
+        SELECT id, file_change_id, line_number, author, comment, timestamp, resolved
+        FROM review_comments
+        WHERE file_change_id = ?
+        ORDER BY timestamp ASC
+        "#
+    )
+    .bind(&file_change_id)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch review comments: {}", e))?;
+
+    log::info!("Fetched {} review comments", comments.len());
+    Ok(comments)
+}
+
+/// Resolve a review comment
+#[tauri::command]
+pub async fn resolve_review_comment(
+    db: State<'_, Database>,
+    comment_id: String,
+) -> Result<crate::models::ReviewComment, String> {
+    log::info!("Resolving review comment: {}", comment_id);
+
+    sqlx::query(
+        r#"
+        UPDATE review_comments
+        SET resolved = TRUE
+        WHERE id = ?
+        "#
+    )
+    .bind(&comment_id)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to resolve comment: {}", e))?;
+
+    // Fetch and return the updated comment
+    let comment = sqlx::query_as::<_, crate::models::ReviewComment>(
+        r#"
+        SELECT id, file_change_id, line_number, author, comment, timestamp, resolved
+        FROM review_comments
+        WHERE id = ?
+        "#
+    )
+    .bind(&comment_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch updated comment: {}", e))?;
+
+    log::info!("Review comment resolved successfully");
+    Ok(comment)
+}
+
+/// Unresolve a review comment
+#[tauri::command]
+pub async fn unresolve_review_comment(
+    db: State<'_, Database>,
+    comment_id: String,
+) -> Result<crate::models::ReviewComment, String> {
+    log::info!("Unresolving review comment: {}", comment_id);
+
+    sqlx::query(
+        r#"
+        UPDATE review_comments
+        SET resolved = FALSE
+        WHERE id = ?
+        "#
+    )
+    .bind(&comment_id)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to unresolve comment: {}", e))?;
+
+    // Fetch and return the updated comment
+    let comment = sqlx::query_as::<_, crate::models::ReviewComment>(
+        r#"
+        SELECT id, file_change_id, line_number, author, comment, timestamp, resolved
+        FROM review_comments
+        WHERE id = ?
+        "#
+    )
+    .bind(&comment_id)
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch updated comment: {}", e))?;
+
+    log::info!("Review comment unresolved successfully");
+    Ok(comment)
+}
+
+/// Delete a review comment
+#[tauri::command]
+pub async fn delete_review_comment(
+    db: State<'_, Database>,
+    comment_id: String,
+) -> Result<(), String> {
+    log::info!("Deleting review comment: {}", comment_id);
+
+    sqlx::query(
+        r#"
+        DELETE FROM review_comments
+        WHERE id = ?
+        "#
+    )
+    .bind(&comment_id)
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to delete comment: {}", e))?;
+
+    log::info!("Review comment deleted successfully");
+    Ok(())
+}
+
+// ============================================================================
 // Agent Session Commands
 // ============================================================================
-// TODO: Fix PTY Sync issues before enabling these commands
 
-/*
 /// Start an agent session for a project
 #[tauri::command]
 pub async fn start_agent_session(
@@ -1544,8 +2160,13 @@ pub async fn start_agent_session(
     agent_manager: State<'_, crate::agent_manager::AgentManager>,
     project_id: String,
     agent_type: String,
+    resume_session_id: Option<String>,
 ) -> Result<crate::agent_manager::AgentSession, String> {
     log::info!("Starting {} agent session for project: {}", agent_type, project_id);
+
+    if let Some(ref session_id) = resume_session_id {
+        log::info!("Resuming Claude session: {}", session_id);
+    }
 
     // Get project to verify it exists and get the root path
     let project = get_project(db.clone(), project_id.clone())
@@ -1554,15 +2175,15 @@ pub async fn start_agent_session(
 
     // Start the agent session
     let session = agent_manager
-        .start_session(project_id.clone(), agent_type.clone(), project.root_path.clone())
+        .start_session(project_id.clone(), agent_type.clone(), project.root_path.clone(), resume_session_id.clone())
         .await
         .map_err(|e| format!("Failed to start agent session: {}", e))?;
 
     // Save the session to the database
     sqlx::query(
         r#"
-        INSERT INTO agent_sessions (id, project_id, task_id, agent_type, started_at, ended_at, status, exit_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO agent_sessions (id, project_id, task_id, agent_type, started_at, ended_at, status, exit_code, claude_session_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#
     )
     .bind(&session.session_id)
@@ -1573,6 +2194,7 @@ pub async fn start_agent_session(
     .bind::<Option<i64>>(None) // ended_at
     .bind("running")
     .bind::<Option<i64>>(None) // exit_code
+    .bind(&session.claude_session_id)
     .execute(db.pool())
     .await
     .map_err(|e| format!("Failed to save agent session: {}", e))?;
@@ -1630,7 +2252,65 @@ pub async fn read_agent_output(
     }
     .map_err(|e| format!("Failed to read output: {}", e))?;
 
-    Ok(output)
+    // Strip ANSI escape codes from each line for clean UI display
+    let cleaned_output: Vec<String> = output
+        .into_iter()
+        .map(|line| {
+            let cleaned_bytes = strip_ansi_escapes::strip(&line);
+            String::from_utf8_lossy(&cleaned_bytes).to_string()
+        })
+        .collect();
+
+    Ok(cleaned_output)
+}
+
+/// Read parsed events from an agent session
+#[tauri::command]
+pub async fn read_agent_events(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+) -> Result<Vec<crate::output_parser::AgentEvent>, String> {
+    log::info!("Reading events from agent session: {}", session_id);
+
+    let events = agent_manager
+        .read_events(&session_id)
+        .await
+        .map_err(|e| format!("Failed to read events: {}", e))?;
+
+    log::info!("Retrieved {} events from session {}", events.len(), session_id);
+    Ok(events)
+}
+
+/// Read both raw output and parsed events from an agent session
+#[tauri::command]
+pub async fn read_agent_output_and_events(
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+) -> Result<(Vec<String>, Vec<crate::output_parser::AgentEvent>), String> {
+    log::info!("Reading output and events from agent session: {}", session_id);
+
+    let (output, events) = agent_manager
+        .read_output_and_events(&session_id)
+        .await
+        .map_err(|e| format!("Failed to read output and events: {}", e))?;
+
+    // Strip ANSI escape codes from output lines
+    let cleaned_output: Vec<String> = output
+        .into_iter()
+        .map(|line| {
+            let cleaned_bytes = strip_ansi_escapes::strip(&line);
+            String::from_utf8_lossy(&cleaned_bytes).to_string()
+        })
+        .collect();
+
+    log::info!(
+        "Retrieved {} output lines and {} events from session {}",
+        cleaned_output.len(),
+        events.len(),
+        session_id
+    );
+
+    Ok((cleaned_output, events))
 }
 
 /// Stop an agent session
@@ -1665,6 +2345,45 @@ pub async fn stop_agent_session(
 
     log::info!("Agent session stopped: {}", session_id);
     Ok(())
+}
+
+/// Sync the claude_session_id from runtime session to database
+#[tauri::command]
+pub async fn sync_claude_session_id(
+    db: State<'_, Database>,
+    agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    session_id: String,
+) -> Result<Option<String>, String> {
+    log::info!("Syncing Claude session ID for session: {}", session_id);
+
+    // Get the session from agent manager to see if it has a claude_session_id
+    let session = agent_manager
+        .get_session_status(&session_id)
+        .await
+        .map_err(|e| format!("Failed to get session: {}", e))?;
+
+    // If the session has a claude_session_id, update it in the database
+    if let Some(claude_session_id) = session.claude_session_id {
+        log::info!("Updating database with Claude session ID: {}", claude_session_id);
+
+        sqlx::query(
+            r#"
+            UPDATE agent_sessions
+            SET claude_session_id = ?
+            WHERE id = ?
+            "#
+        )
+        .bind(&claude_session_id)
+        .bind(&session_id)
+        .execute(db.pool())
+        .await
+        .map_err(|e| format!("Failed to update claude_session_id: {}", e))?;
+
+        log::info!("Claude session ID synced successfully");
+        Ok(Some(claude_session_id))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Get the status of an agent session
@@ -1711,6 +2430,31 @@ pub async fn check_agent_health(
     Ok(is_healthy)
 }
 
+/// Get agent sessions history for a project from database
+#[tauri::command]
+pub async fn get_project_sessions(
+    db: State<'_, Database>,
+    #[allow(non_snake_case)] projectId: String,
+) -> Result<Vec<crate::models::AgentSession>, String> {
+    log::info!("Getting agent sessions for project: {}", projectId);
+
+    let sessions = sqlx::query_as::<_, crate::models::AgentSession>(
+        r#"
+        SELECT id, project_id, task_id, agent_type, started_at, ended_at, status, exit_code, claude_session_id
+        FROM agent_sessions
+        WHERE project_id = ?
+        ORDER BY started_at DESC
+        LIMIT 50
+        "#
+    )
+    .bind(&projectId)
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to get project sessions: {}", e))?;
+
+    Ok(sessions)
+}
+
 /// Parse agent output into structured events
 #[tauri::command]
 pub async fn parse_agent_output(
@@ -1725,7 +2469,7 @@ pub async fn parse_agent_output(
     // Create the appropriate adapter based on agent type
     let adapter: Box<dyn AgentAdapter> = match agent_type.to_lowercase().as_str() {
         "claude" | "claude-code" => {
-            Box::new(crate::adapters::ClaudeCodeAdapter::new(session_id.clone()))
+            Box::new(crate::adapters::claude_adapter::ClaudeCodeAdapter::new(session_id.clone()))
         }
         "aider" => {
             Box::new(crate::agent_adapter::AiderAdapter::new(session_id.clone()))
@@ -1740,7 +2484,309 @@ pub async fn parse_agent_output(
 
     Ok(parsed)
 }
-*/
+
+// ============================================================================
+// Database Cleanup Commands
+// ============================================================================
+
+/// Cleanup result containing counts of deleted items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupResult {
+    pub sessions_deleted: i64,
+    pub messages_deleted: i64,
+}
+
+/// Delete orphaned agent sessions and their associated messages
+/// An orphaned session is one where claude_session_id IS NULL
+#[tauri::command]
+pub async fn cleanup_orphaned_sessions(
+    db: State<'_, Database>,
+) -> Result<CleanupResult, String> {
+    log::info!("Starting cleanup of orphaned agent sessions");
+
+    // First, get the count of sessions that will be deleted
+    let sessions_to_delete = sqlx::query_scalar::<_, i64>(
+        r#"
+        SELECT COUNT(*)
+        FROM agent_sessions
+        WHERE claude_session_id IS NULL
+        "#
+    )
+    .fetch_one(db.pool())
+    .await
+    .map_err(|e| format!("Failed to count orphaned sessions: {}", e))?;
+
+    log::info!("Found {} orphaned sessions to delete", sessions_to_delete);
+
+    // Get the IDs of sessions that will be deleted (for logging)
+    let orphaned_session_ids: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM agent_sessions
+        WHERE claude_session_id IS NULL
+        "#
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(|e| format!("Failed to fetch orphaned session IDs: {}", e))?;
+
+    log::debug!("Orphaned session IDs: {:?}", orphaned_session_ids);
+
+    // Delete messages associated with orphaned sessions first (foreign key constraint)
+    let messages_deleted = sqlx::query(
+        r#"
+        DELETE FROM chat_messages
+        WHERE session_id IN (
+            SELECT id FROM agent_sessions WHERE claude_session_id IS NULL
+        )
+        "#
+    )
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to delete orphaned session messages: {}", e))?
+    .rows_affected();
+
+    log::info!("Deleted {} messages from orphaned sessions", messages_deleted);
+
+    // Then delete the orphaned sessions
+    let sessions_deleted = sqlx::query(
+        r#"
+        DELETE FROM agent_sessions
+        WHERE claude_session_id IS NULL
+        "#
+    )
+    .execute(db.pool())
+    .await
+    .map_err(|e| format!("Failed to delete orphaned sessions: {}", e))?
+    .rows_affected();
+
+    log::info!(
+        "Cleanup complete: deleted {} sessions and {} messages",
+        sessions_deleted,
+        messages_deleted
+    );
+
+    Ok(CleanupResult {
+        sessions_deleted: sessions_deleted as i64,
+        messages_deleted: messages_deleted as i64,
+    })
+}
+
+// ============================================================================
+// Chat Tab Commands
+// ============================================================================
+
+/// Get all chat tabs for a project
+#[tauri::command]
+pub async fn get_chat_tabs(
+    project_id: String,
+    db: State<'_, Database>,
+) -> Result<Vec<ChatTab>, String> {
+    let pool = db.pool();
+
+    sqlx::query_as::<_, ChatTab>(
+        "SELECT id, project_id, agent_type, session_id, cli_session_id, label, tab_order, is_active, created_at, last_activity
+         FROM chat_tabs
+         WHERE project_id = ?
+         ORDER BY tab_order ASC"
+    )
+    .bind(&project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to get chat tabs: {}", e))
+}
+
+/// Create a new chat tab
+#[tauri::command]
+pub async fn create_chat_tab(
+    project_id: String,
+    agent_type: String,
+    label: Option<String>,
+    db: State<'_, Database>,
+) -> Result<ChatTab, String> {
+    let pool = db.pool();
+
+    // Get the max tab_order for this project
+    let max_order: Option<i64> = sqlx::query_scalar(
+        "SELECT MAX(tab_order) FROM chat_tabs WHERE project_id = ?"
+    )
+    .bind(&project_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("Failed to get max tab order: {}", e))?;
+
+    let new_order = max_order.unwrap_or(-1) + 1;
+    let mut tab = ChatTab::new(project_id.clone(), agent_type, new_order);
+    tab.label = label;
+
+    // If this is the first tab, make it active
+    if new_order == 0 {
+        tab.is_active = true;
+    }
+
+    sqlx::query(
+        "INSERT INTO chat_tabs (id, project_id, agent_type, session_id, cli_session_id, label, tab_order, is_active, created_at, last_activity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&tab.id)
+    .bind(&tab.project_id)
+    .bind(&tab.agent_type)
+    .bind(&tab.session_id)
+    .bind(&tab.cli_session_id)
+    .bind(&tab.label)
+    .bind(&tab.tab_order)
+    .bind(&tab.is_active)
+    .bind(&tab.created_at)
+    .bind(&tab.last_activity)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to create chat tab: {}", e))?;
+
+    log::info!("Created chat tab {} for project {}", tab.id, project_id);
+    Ok(tab)
+}
+
+/// Update a chat tab
+#[tauri::command]
+pub async fn update_chat_tab(
+    tab_id: String,
+    label: Option<String>,
+    session_id: Option<String>,
+    cli_session_id: Option<String>,
+    db: State<'_, Database>,
+) -> Result<ChatTab, String> {
+    let pool = db.pool();
+    let now = chrono::Utc::now().timestamp();
+
+    // Build update query dynamically based on what's provided
+    sqlx::query(
+        "UPDATE chat_tabs
+         SET label = COALESCE(?, label),
+             session_id = COALESCE(?, session_id),
+             cli_session_id = COALESCE(?, cli_session_id),
+             last_activity = ?
+         WHERE id = ?"
+    )
+    .bind(&label)
+    .bind(&session_id)
+    .bind(&cli_session_id)
+    .bind(now)
+    .bind(&tab_id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to update chat tab: {}", e))?;
+
+    // Fetch and return the updated tab
+    sqlx::query_as::<_, ChatTab>(
+        "SELECT id, project_id, agent_type, session_id, cli_session_id, label, tab_order, is_active, created_at, last_activity
+         FROM chat_tabs WHERE id = ?"
+    )
+    .bind(&tab_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch updated chat tab: {}", e))
+}
+
+/// Set the active tab for a project
+#[tauri::command]
+pub async fn set_active_tab(
+    project_id: String,
+    tab_id: String,
+    db: State<'_, Database>,
+) -> Result<(), String> {
+    let pool = db.pool();
+
+    // Deactivate all tabs for this project
+    sqlx::query("UPDATE chat_tabs SET is_active = FALSE WHERE project_id = ?")
+        .bind(&project_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to deactivate tabs: {}", e))?;
+
+    // Activate the selected tab
+    sqlx::query("UPDATE chat_tabs SET is_active = TRUE, last_activity = ? WHERE id = ?")
+        .bind(chrono::Utc::now().timestamp())
+        .bind(&tab_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to activate tab: {}", e))?;
+
+    Ok(())
+}
+
+/// Close/delete a chat tab
+#[tauri::command]
+pub async fn close_chat_tab(
+    tab_id: String,
+    db: State<'_, Database>,
+) -> Result<(), String> {
+    let pool = db.pool();
+
+    // Get the tab info before deleting (for reordering)
+    let tab: ChatTab = sqlx::query_as(
+        "SELECT id, project_id, agent_type, session_id, cli_session_id, label, tab_order, is_active, created_at, last_activity
+         FROM chat_tabs WHERE id = ?"
+    )
+    .bind(&tab_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("Failed to find chat tab: {}", e))?;
+
+    // Delete the tab
+    sqlx::query("DELETE FROM chat_tabs WHERE id = ?")
+        .bind(&tab_id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to delete chat tab: {}", e))?;
+
+    // Reorder remaining tabs
+    sqlx::query(
+        "UPDATE chat_tabs SET tab_order = tab_order - 1
+         WHERE project_id = ? AND tab_order > ?"
+    )
+    .bind(&tab.project_id)
+    .bind(&tab.tab_order)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to reorder tabs: {}", e))?;
+
+    // If the closed tab was active, activate the first remaining tab
+    if tab.is_active {
+        sqlx::query(
+            "UPDATE chat_tabs SET is_active = TRUE
+             WHERE project_id = ? AND tab_order = 0"
+        )
+        .bind(&tab.project_id)
+        .execute(pool)
+        .await
+        .ok(); // Ignore errors if no tabs remain
+    }
+
+    log::info!("Closed chat tab {}", tab_id);
+    Ok(())
+}
+
+/// Reorder chat tabs
+#[tauri::command]
+pub async fn reorder_chat_tabs(
+    project_id: String,
+    tab_ids: Vec<String>,
+    db: State<'_, Database>,
+) -> Result<(), String> {
+    let pool = db.pool();
+
+    for (index, tab_id) in tab_ids.iter().enumerate() {
+        sqlx::query("UPDATE chat_tabs SET tab_order = ? WHERE id = ? AND project_id = ?")
+            .bind(index as i64)
+            .bind(tab_id)
+            .bind(&project_id)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Failed to reorder tab {}: {}", tab_id, e))?;
+    }
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,13 +1,14 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '../stores/projectStore';
-import { ArrowLeft, Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings, Sparkles, Save, GitCompare } from 'lucide-react';
+import { Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings, Sparkles, Save, GitCompare } from 'lucide-react';
 import type { Project } from '../types/project';
 import OverviewTab from '../components/workspace/OverviewTab';
 import TasksTab from '../components/workspace/TasksTab';
 import FilesTab from '../components/workspace/FilesTab';
 import ChatTab from '../components/workspace/ChatTab';
-import { ChangesTab } from '../components/workspace/ChangesTab';
+import ChangesTab from '../components/workspace/ChangesTab';
+import AIProjectDetailsModal, { type AIProjectDetails } from '../components/modals/AIProjectDetailsModal';
 import { invoke } from '@tauri-apps/api/core';
 
 type TabType = 'overview' | 'chat' | 'files' | 'tasks' | 'changes' | 'settings';
@@ -20,13 +21,21 @@ export default function Workspace() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const getProject = useProjectStore((state) => state.getProject);
   const setCurrentProject = useProjectStore((state) => state.setCurrentProject);
+  const updateProjectInStore = useProjectStore((state) => state.updateProject);
 
   // Settings tab state
   const [editedName, setEditedName] = useState('');
   const [editedDescription, setEditedDescription] = useState('');
+  const [editedStatus, setEditedStatus] = useState<'active' | 'archived' | 'paused'>('active');
+  const [editedIcon, setEditedIcon] = useState<string | null>(null);
+  const [editedColor, setEditedColor] = useState<string | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // AI modal state
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiGeneratedDetails, setAiGeneratedDetails] = useState<AIProjectDetails>({ name: '', description: '' });
 
   useEffect(() => {
     const loadProject = async () => {
@@ -47,6 +56,9 @@ export default function Workspace() {
         if (projectData) {
           setEditedName(projectData.name);
           setEditedDescription(projectData.description || '');
+          setEditedStatus(projectData.status);
+          setEditedIcon(projectData.icon || null);
+          setEditedColor(projectData.color || null);
         }
       } catch (error) {
         console.error('Failed to load project:', error);
@@ -64,30 +76,39 @@ export default function Workspace() {
     if (!project) return;
     const nameChanged = editedName !== project.name;
     const descChanged = editedDescription !== (project.description || '');
-    setHasChanges(nameChanged || descChanged);
-  }, [editedName, editedDescription, project]);
+    const statusChanged = editedStatus !== project.status;
+    setHasChanges(nameChanged || descChanged || statusChanged);
+  }, [editedName, editedDescription, editedStatus, project]);
 
-  // Handle AI regeneration
+  // Handle AI regeneration - generate and show in modal
   const handleRegenerateWithAI = async () => {
-    if (!id) return;
+    if (!id || !project) return;
 
     setIsRegenerating(true);
+    setShowAIModal(true);
+
     try {
-      const updatedProject = await invoke<Project>('update_project_with_ai', {
-        projectId: id,
+      console.log('Calling generate_project_details with path:', project.path);
+      const details = await invoke<AIProjectDetails>('generate_project_details', {
+        projectPath: project.path,
       });
 
-      // Update local state
-      setProject(updatedProject);
-      setEditedName(updatedProject.name);
-      setEditedDescription(updatedProject.description || '');
-      setHasChanges(false);
+      console.log('Received AI-generated details:', details);
+      setAiGeneratedDetails(details);
     } catch (error) {
-      console.error('Failed to regenerate with AI:', error);
-      alert('Failed to regenerate project details with AI. Please check console for details.');
+      console.error('Failed to generate project details:', error);
+      alert('Failed to generate project details with AI. Please check console for details.');
+      setShowAIModal(false);
     } finally {
       setIsRegenerating(false);
     }
+  };
+
+  // Handle applying AI-generated details
+  const handleApplyAIDetails = (details: AIProjectDetails) => {
+    setEditedName(details.name);
+    setEditedDescription(details.description);
+    setHasChanges(true);
   };
 
   // Handle manual save
@@ -98,12 +119,21 @@ export default function Workspace() {
     try {
       const updatedProject = await invoke<Project>('update_project', {
         id,
-        name: editedName,
-        description: editedDescription,
+        updates: {
+          name: editedName,
+          prd_content: editedDescription,
+          status: editedStatus,
+          icon: editedIcon || undefined,
+          color: editedColor || undefined,
+        },
       });
 
       // Update local state
       setProject(updatedProject);
+
+      // Update the Zustand store so the sidebar updates
+      await updateProjectInStore(id, updatedProject);
+
       setHasChanges(false);
     } catch (error) {
       console.error('Failed to save changes:', error);
@@ -144,32 +174,26 @@ export default function Workspace() {
     <div className="min-h-screen bg-base-100">
       {/* Header */}
       <div className="navbar bg-base-200 border-b border-base-300">
-        <div className="flex-1">
-          <button
-            onClick={() => navigate('/')}
-            className="btn btn-ghost btn-sm gap-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-          <div className="divider divider-horizontal mx-2"></div>
-          <Folder className="w-5 h-5 mr-2" />
+        <div className="flex-1 gap-2">
+          <Folder className="w-5 h-5" />
           <div>
             <h1 className="text-xl font-bold">{project.name}</h1>
             <p className="text-xs text-base-content/60">{project.path}</p>
           </div>
         </div>
         <div className="flex-none gap-2">
-          <div className="badge badge-primary gap-2">
-            <Bot className="w-3 h-3" />
-            {project.agent.type}
-          </div>
+          {project.agent && (
+            <div className="badge badge-primary gap-2">
+              <Bot className="w-3 h-3" />
+              {project.agent.type}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-base-300 bg-base-200">
-        <div className="container mx-auto px-8">
+        <div className="px-8">
           <div className="tabs tabs-boxed bg-transparent gap-2 py-3">
             <button
               className={`tab gap-2 ${activeTab === 'overview' ? 'tab-active' : ''}`}
@@ -181,6 +205,7 @@ export default function Workspace() {
             <button
               className={`tab gap-2 ${activeTab === 'chat' ? 'tab-active' : ''}`}
               onClick={() => setActiveTab('chat')}
+              data-tab="chat"
             >
               <MessageSquare className="w-4 h-4" />
               Chat
@@ -218,8 +243,8 @@ export default function Workspace() {
       </div>
 
       {/* Tab Content */}
-      <div className="container mx-auto p-8">
-        {activeTab === 'overview' && id && (
+      <div className="p-8">
+        {activeTab === 'overview' && id && project.agent && (
           <OverviewTab
             projectId={id}
             agentType={project.agent.type}
@@ -294,6 +319,108 @@ export default function Workspace() {
                   />
                 </div>
 
+                <div>
+                  <label className="label">
+                    <span className="label-text font-semibold">Active Status</span>
+                  </label>
+                  <div className="form-control">
+                    <label className="label cursor-pointer justify-start gap-4">
+                      <input
+                        type="checkbox"
+                        className="toggle toggle-success"
+                        checked={editedStatus === 'active'}
+                        onChange={(e) => setEditedStatus(e.target.checked ? 'active' : 'archived')}
+                      />
+                      <div>
+                        <span className="label-text font-medium">
+                          {editedStatus === 'active' ? 'Active' : 'Inactive'}
+                        </span>
+                        <div className="label-text-alt text-base-content/60 mt-1">
+                          {editedStatus === 'active'
+                            ? 'Project appears on home page and is actively tracked'
+                            : 'Project is hidden from default view (use "Show All" toggle to see it)'}
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="divider"></div>
+
+                {/* Icon Selection */}
+                <div>
+                  <label className="label">
+                    <span className="label-text font-semibold">Project Icon</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {['📁', '🚀', '💻', '🎮', '🎨', '📱', '🌐', '⚡', '🔧', '📊', '🎵', '📚', '🛠️', '🔬', '🎯'].map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => { setEditedIcon(emoji); setHasChanges(true); }}
+                        className={`btn btn-square btn-sm text-lg ${editedIcon === emoji ? 'btn-primary' : 'btn-ghost'}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setEditedIcon(null); setHasChanges(true); }}
+                      className={`btn btn-sm ${!editedIcon ? 'btn-primary' : 'btn-ghost'}`}
+                    >
+                      Default
+                    </button>
+                  </div>
+                  <label className="label">
+                    <span className="label-text-alt text-base-content/60">
+                      Choose an icon to identify this project in the sidebar
+                    </span>
+                  </label>
+                </div>
+
+                {/* Color Selection */}
+                <div>
+                  <label className="label">
+                    <span className="label-text font-semibold">Project Color</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { name: 'purple', class: 'bg-purple-500' },
+                      { name: 'blue', class: 'bg-blue-500' },
+                      { name: 'green', class: 'bg-green-500' },
+                      { name: 'orange', class: 'bg-orange-500' },
+                      { name: 'red', class: 'bg-red-500' },
+                      { name: 'yellow', class: 'bg-yellow-500' },
+                      { name: 'cyan', class: 'bg-cyan-500' },
+                      { name: 'pink', class: 'bg-pink-500' },
+                      { name: 'indigo', class: 'bg-indigo-500' },
+                      { name: 'teal', class: 'bg-teal-500' },
+                    ].map((color) => (
+                      <button
+                        key={color.name}
+                        type="button"
+                        onClick={() => { setEditedColor(color.name); setHasChanges(true); }}
+                        className={`w-8 h-8 rounded-full ${color.class} transition-all ${
+                          editedColor === color.name ? 'ring-2 ring-offset-2 ring-primary scale-110' : 'hover:scale-105'
+                        }`}
+                        title={color.name}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setEditedColor(null); setHasChanges(true); }}
+                      className={`btn btn-sm ${!editedColor ? 'btn-primary' : 'btn-ghost'}`}
+                    >
+                      Default
+                    </button>
+                  </div>
+                  <label className="label">
+                    <span className="label-text-alt text-base-content/60">
+                      Choose a color theme for this project
+                    </span>
+                  </label>
+                </div>
+
                 <div className="divider"></div>
 
                 <div>
@@ -320,7 +447,7 @@ export default function Workspace() {
                   <input
                     type="text"
                     className="input input-bordered w-full"
-                    value={project.agent.type}
+                    value={project.agent?.type || 'Unknown'}
                     disabled
                   />
                   <label className="label">
@@ -337,6 +464,10 @@ export default function Workspace() {
                     onClick={() => {
                       setEditedName(project.name);
                       setEditedDescription(project.description || '');
+                      setEditedStatus(project.status);
+                      setEditedIcon(project.icon || null);
+                      setEditedColor(project.color || null);
+                      setHasChanges(false);
                     }}
                     disabled={!hasChanges || isSaving}
                     className="btn btn-ghost btn-sm"
@@ -366,6 +497,15 @@ export default function Workspace() {
           </div>
         )}
       </div>
+
+      {/* AI Project Details Modal */}
+      <AIProjectDetailsModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        onApply={handleApplyAIDetails}
+        initialDetails={aiGeneratedDetails}
+        isLoading={isRegenerating}
+      />
     </div>
   );
 }

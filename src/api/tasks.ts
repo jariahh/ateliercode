@@ -17,7 +17,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
  * Get all tasks for a project
  */
 export async function getTasks(projectId: string): Promise<Task[]> {
-  return await invoke<Task[]>('get_tasks', { project_id: projectId });
+  return await invoke<Task[]>('get_tasks', { projectId });
 }
 
 /**

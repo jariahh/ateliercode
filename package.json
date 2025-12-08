@@ -6,9 +6,14 @@
   "scripts": {
     "dev": "vite dev --port 1420 --host",
     "tauri": "tauri dev",
+    "tauri:dev": "npm run build:plugins && tauri dev",
     "build": "vite build",
     "build:tauri": "tauri build",
-    "preview": "vite preview"
+    "build:plugins": "node scripts/build-plugins.js",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
@@ -21,9 +26,10 @@
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/react-window": "^1.8.8",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "daisyui": "^5.5.5",
+    "daisyui": "^4.12.24",
     "date-fns": "^3.0.6",
     "diff": "^5.1.0",
     "framer-motion": "^10.18.0",
@@ -32,9 +38,11 @@
     "react-dom": "^18.2.0",
     "react-hotkeys-hook": "^4.4.4",
     "react-markdown": "^9.0.1",
+    "react-resizable-panels": "^3.0.6",
     "react-router-dom": "^6.21.3",
     "react-syntax-highlighter": "^16.1.0",
     "react-virtuoso": "^4.6.2",
+    "react-window": "^2.2.3",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.2.0",
     "tailwindcss-animate": "^1.0.7",
@@ -42,6 +50,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
     "@types/diff": "^5.0.9",
     "@types/node": "^20.10.8",
     "@types/react": "^18.2.47",
@@ -53,9 +63,11 @@
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "jsdom": "^27.3.0",
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
-    "vite": "^5.0.11"
+    "vite": "^5.0.11",
+    "vitest": "^4.0.15"
   }
 }

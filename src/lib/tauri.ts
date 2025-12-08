@@ -7,13 +7,15 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Project, CreateProjectInput, AgentType } from '../types/project';
 
 /**
- * Agent information from backend
+ * Agent information from backend (plugins)
  */
 export interface AgentInfo {
   name: string;
   installed: boolean;
   version: string | null;
   command: string;
+  display_name?: string;
+  description?: string;
 }
 
 /**
@@ -29,6 +31,8 @@ interface BackendProject {
   created_at: number;
   last_activity: number;
   settings: string | null;
+  icon: string | null;
+  color: string | null;
 }
 
 /**
@@ -80,14 +84,17 @@ function backendToFrontendProject(backend: BackendProject): Project {
     updatedAt: timestampToISO(backend.last_activity),
     lastOpenedAt: timestampToISO(backend.last_activity),
     tags: [],
+    icon: backend.icon || undefined,
+    color: backend.color || undefined,
   };
 }
 
 /**
  * Check if Tauri is available (not in browser dev mode)
+ * Tauri v2 uses __TAURI_INTERNALS__ instead of __TAURI__
  */
 export function isTauriAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
+  return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 }
 
 /**
@@ -124,11 +131,15 @@ export async function getProjects(): Promise<Project[]> {
   }
 
   try {
+    console.log('[Tauri] Calling get_projects command...');
     const results = await invoke<BackendProject[]>('get_projects');
-    return results.map(backendToFrontendProject);
+    console.log('[Tauri] Received projects from backend:', results);
+    const converted = results.map(backendToFrontendProject);
+    console.log('[Tauri] Converted projects:', converted);
+    return converted;
   } catch (error) {
-    console.error('Failed to get projects:', error);
-    throw new Error(error as string || 'Failed to get projects');
+    console.error('[Tauri] Failed to get projects:', error);
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 

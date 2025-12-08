@@ -5,19 +5,32 @@ export type Theme =
   | 'light'
   | 'dark'
   | 'cupcake'
-  | 'cyberpunk'
-  | 'synthwave'
-  | 'forest'
-  | 'lofi'
-  | 'dracula'
   | 'bumblebee'
   | 'emerald'
   | 'corporate'
+  | 'synthwave'
   | 'retro'
+  | 'cyberpunk'
   | 'valentine'
+  | 'halloween'
+  | 'garden'
+  | 'forest'
   | 'aqua'
+  | 'lofi'
+  | 'pastel'
+  | 'fantasy'
+  | 'wireframe'
+  | 'black'
+  | 'luxury'
+  | 'dracula'
+  | 'cmyk'
+  | 'autumn'
+  | 'business'
+  | 'acid'
+  | 'lemonade'
   | 'night'
-  | 'coffee';
+  | 'coffee'
+  | 'winter';
 
 interface ThemeState {
   theme: Theme;
@@ -50,12 +63,29 @@ export const useThemeStore = create<ThemeState>()(
   )
 );
 
-// Initialize theme on load (fallback for first load before rehydration)
-setTimeout(() => {
-  const theme = useThemeStore.getState().theme;
-  const currentTheme = document.documentElement.getAttribute('data-theme');
-  if (!currentTheme) {
-    console.log('[ThemeStore] Initial theme setup:', theme);
-    document.documentElement.setAttribute('data-theme', theme);
+// Initialize theme immediately on module load
+// This ensures the theme is applied before React renders
+const applyInitialTheme = () => {
+  try {
+    // Try to get persisted theme from localStorage
+    const storedData = localStorage.getItem('ateliercode-theme');
+    if (storedData) {
+      const parsed = JSON.parse(storedData);
+      if (parsed?.state?.theme) {
+        document.documentElement.setAttribute('data-theme', parsed.state.theme);
+        console.log('[ThemeStore] Initial theme applied from localStorage:', parsed.state.theme);
+        return;
+      }
+    }
+  } catch (error) {
+    console.error('[ThemeStore] Failed to parse stored theme:', error);
   }
-}, 0);
+
+  // Fallback to default theme
+  const defaultTheme = 'dark';
+  document.documentElement.setAttribute('data-theme', defaultTheme);
+  console.log('[ThemeStore] Applied default theme:', defaultTheme);
+};
+
+// Apply immediately
+applyInitialTheme();

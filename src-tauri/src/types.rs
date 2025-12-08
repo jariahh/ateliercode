@@ -19,6 +19,10 @@ pub struct UpdateProjectInput {
     pub status: Option<String>,
     pub prd_content: Option<String>,
     pub settings: Option<String>,
+    /// Project icon (emoji, icon name, or path to custom icon)
+    pub icon: Option<String>,
+    /// Project color for theming (e.g., "purple", "blue", "green")
+    pub color: Option<String>,
 }
 
 /// Information about an installed agent
@@ -28,6 +32,16 @@ pub struct AgentInfo {
     pub installed: bool,
     pub version: Option<String>,
     pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Display icon (emoji like "🟣" or icon name)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Primary color name for theming (e.g., "purple", "blue", "green")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 impl AgentInfo {
@@ -38,6 +52,33 @@ impl AgentInfo {
             installed,
             version,
             command,
+            display_name: None,
+            description: None,
+            icon: None,
+            color: None,
+        }
+    }
+
+    /// Create a new agent info instance with display options
+    pub fn with_display(
+        name: String,
+        command: String,
+        installed: bool,
+        version: Option<String>,
+        display_name: Option<String>,
+        description: Option<String>,
+        icon: Option<String>,
+        color: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            installed,
+            version,
+            command,
+            display_name,
+            description,
+            icon,
+            color,
         }
     }
 }
@@ -83,4 +124,11 @@ pub struct ProjectAnalysisResult {
     pub detected_frameworks: Vec<String>,
     pub file_count: usize,
     pub has_git: bool,
+}
+
+/// AI-generated project details (for modal preview)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIProjectDetails {
+    pub name: String,
+    pub description: String,
 }

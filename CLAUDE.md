@@ -108,5 +108,42 @@ kill <specific-pid>
 
 ---
 
-**Last Updated:** 2025-11-17
-**Purpose:** Prevent accidental termination of Claude sessions and critical processes
+## 🔌 Plugin System Architecture
+
+### Plugin Project Locations
+- **Claude Code Plugin**: `C:\projects\ateliercode-plugin-claude`
+  - Wraps Claude Code CLI for integration
+  - Reads sessions from `~/.claude/sessions/`
+- **Gemini Plugin**: `C:\projects\ateliercode-plugin-gemini`
+  - Wraps Gemini CLI for integration
+  - Reads sessions from `~/.gemini/tmp/{project_hash}/chats/`
+
+### Plugin Build Type
+- **Type**: Rust dynamic library (.dll) - separate Cargo projects
+- **Key**: Built as `crate-type = ["cdylib"]` in Cargo.toml
+- **Install Location**: `%APPDATA%/AtelierCode/plugins/{plugin_name}/`
+
+### How Plugins Work
+1. Main app defines `AgentPlugin` trait in `src-tauri/src/plugin.rs`
+2. Plugin projects implement this trait
+3. Main app loads the compiled `.dll` at runtime via `plugin_manager.rs`
+4. Plugin reads CLI session files and returns data to main app
+
+### Dual System Architecture
+AtelierCode has TWO systems for agent integration:
+1. **AgentManager** (`src-tauri/src/agent_manager.rs`): Direct CLI spawning for active sessions
+   - Used by: `start_agent_session`, `send_to_agent`, `read_agent_output`
+   - Spawns CLI commands in headless mode per-message
+2. **PluginManager** (`src-tauri/src/plugin.rs`): Plugin-based session history
+   - Used by: `list_cli_sessions`, `get_chat_history`, `start_watching_session`
+   - For browsing historical sessions from CLI storage
+
+### Gemini CLI Notes
+- Use positional prompt: `gemini "message"` (NOT deprecated `-p` flag)
+- Add `-o text` for text output format
+- Add `-y` for yolo mode (auto-approve actions)
+
+---
+
+**Last Updated:** 2025-12-08
+**Purpose:** Prevent accidental termination of Claude sessions and maintain project context

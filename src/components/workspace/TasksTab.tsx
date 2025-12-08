@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Circle, ChevronDown, ChevronRight, ListTodo, Clock, CalendarDays } from 'lucide-react';
-import { getTasks, updateTaskStatus } from '../../api/tasks';
+import { CheckCircle2, Circle, ChevronDown, ChevronRight, ListTodo, Clock, CalendarDays, Plus, Filter, Search, X } from 'lucide-react';
+import { getTasks, updateTaskStatus, createTask, updateTask, deleteTask } from '../../api/tasks';
 import type { Task as BackendTask } from '../../types/tauri';
 
 export type TaskStatus = 'todo' | 'in_progress' | 'completed';
@@ -22,10 +22,12 @@ interface TasksTabProps {
 interface TaskCardProps {
   task: Task;
   onToggleComplete: (id: string) => void;
+  onStatusChange?: (id: string, status: TaskStatus) => void;
 }
 
-function TaskCard({ task, onToggleComplete }: TaskCardProps) {
+function TaskCard({ task, onToggleComplete, onStatusChange }: TaskCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   const priorityColors = {
     high: 'badge-error',
@@ -107,9 +109,37 @@ function TaskCard({ task, onToggleComplete }: TaskCardProps) {
               <span className={`badge badge-sm ${priorityColors[task.priority]}`}>
                 {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)} Priority
               </span>
-              <span className={`badge badge-sm ${statusColors[task.status]}`}>
-                {statusLabels[task.status]}
-              </span>
+              {onStatusChange ? (
+                <div className="dropdown dropdown-hover">
+                  <label tabIndex={0} className={`badge badge-sm ${statusColors[task.status]} cursor-pointer`}>
+                    {statusLabels[task.status]}
+                  </label>
+                  <ul tabIndex={0} className="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52 z-10">
+                    <li>
+                      <button onClick={() => onStatusChange(task.id, 'todo')}>
+                        <Circle className="w-4 h-4" />
+                        To Do
+                      </button>
+                    </li>
+                    <li>
+                      <button onClick={() => onStatusChange(task.id, 'in_progress')}>
+                        <Clock className="w-4 h-4" />
+                        In Progress
+                      </button>
+                    </li>
+                    <li>
+                      <button onClick={() => onStatusChange(task.id, 'completed')}>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Completed
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+              ) : (
+                <span className={`badge badge-sm ${statusColors[task.status]}`}>
+                  {statusLabels[task.status]}
+                </span>
+              )}
             </div>
 
             {/* Created date */}
@@ -137,9 +167,10 @@ interface PrioritySectionProps {
   priority: TaskPriority;
   tasks: Task[];
   onToggleComplete: (id: string) => void;
+  onStatusChange?: (id: string, status: TaskStatus) => void;
 }
 
-function PrioritySection({ priority, tasks, onToggleComplete }: PrioritySectionProps) {
+function PrioritySection({ priority, tasks, onToggleComplete, onStatusChange }: PrioritySectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const priorityInfo = {
@@ -192,6 +223,7 @@ function PrioritySection({ priority, tasks, onToggleComplete }: PrioritySectionP
               key={task.id}
               task={task}
               onToggleComplete={onToggleComplete}
+              onStatusChange={onStatusChange}
             />
           ))}
         </div>
@@ -242,6 +274,18 @@ export default function TasksTab({ projectId }: TasksTabProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter & Search state
+  const [statusFilter, setStatusFilter] = useState<'all' | TaskStatus>('all');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | TaskPriority>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Create task modal state
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>('medium');
+  const [isCreating, setIsCreating] = useState(false);
 
   // Load tasks on mount
   useEffect(() => {
@@ -294,15 +338,92 @@ export default function TasksTab({ projectId }: TasksTabProps) {
     }
   };
 
-  // Group tasks by priority
-  const highPriorityTasks = tasks.filter(t => t.priority === 'high');
-  const mediumPriorityTasks = tasks.filter(t => t.priority === 'medium');
-  const lowPriorityTasks = tasks.filter(t => t.priority === 'low');
+  const handleCreateTask = async () => {
+    if (!newTaskTitle.trim()) return;
 
-  // Calculate overall stats
+    setIsCreating(true);
+    try {
+      const backendTask = await createTask({
+        project_id: projectId,
+        title: newTaskTitle,
+        description: newTaskDescription || undefined,
+        priority: newTaskPriority,
+      });
+
+      const newTask = convertBackendTask(backendTask);
+      setTasks(prevTasks => [newTask, ...prevTasks]);
+
+      // Reset form
+      setNewTaskTitle('');
+      setNewTaskDescription('');
+      setNewTaskPriority('medium');
+      setIsCreateModalOpen(false);
+    } catch (err) {
+      console.error('Failed to create task:', err);
+      setError('Failed to create task. Please try again.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.status === newStatus) return;
+
+    // Optimistically update UI
+    setTasks(prevTasks =>
+      prevTasks.map(t =>
+        t.id === taskId ? { ...t, status: newStatus } : t
+      )
+    );
+
+    try {
+      // Update backend
+      await updateTaskStatus(taskId, newStatus);
+    } catch (err) {
+      console.error('Failed to update task status:', err);
+      // Revert on error
+      setTasks(prevTasks =>
+        prevTasks.map(t =>
+          t.id === taskId ? { ...t, status: task.status } : t
+        )
+      );
+      setError('Failed to update task. Please try again.');
+    }
+  };
+
+  // Filter and search tasks
+  const filteredTasks = tasks.filter(task => {
+    // Status filter
+    if (statusFilter !== 'all' && task.status !== statusFilter) return false;
+
+    // Priority filter
+    if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
+
+    // Search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesTitle = task.title.toLowerCase().includes(query);
+      const matchesDescription = task.description?.toLowerCase().includes(query);
+      if (!matchesTitle && !matchesDescription) return false;
+    }
+
+    return true;
+  });
+
+  // Group filtered tasks by priority
+  const highPriorityTasks = filteredTasks.filter(t => t.priority === 'high');
+  const mediumPriorityTasks = filteredTasks.filter(t => t.priority === 'medium');
+  const lowPriorityTasks = filteredTasks.filter(t => t.priority === 'low');
+
+  // Calculate overall stats (from ALL tasks, not filtered)
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'completed').length;
   const inProgressTasks = tasks.filter(t => t.status === 'in_progress').length;
+
+  // Calculate filtered stats
+  const filteredTotal = filteredTasks.length;
+  const showingFiltered = statusFilter !== 'all' || priorityFilter !== 'all' || searchQuery !== '';
 
   // Show loading state
   if (isLoading) {
@@ -337,42 +458,255 @@ export default function TasksTab({ projectId }: TasksTabProps) {
             Manage and track your project tasks
           </p>
         </div>
-        <div className="stats shadow bg-base-200">
-          <div className="stat py-3 px-4">
-            <div className="stat-title text-xs">Total</div>
-            <div className="stat-value text-2xl">{totalTasks}</div>
+        <div className="flex items-center gap-3">
+          <div className="stats shadow bg-base-200">
+            <div className="stat py-3 px-4">
+              <div className="stat-title text-xs">Total</div>
+              <div className="stat-value text-2xl">{totalTasks}</div>
+            </div>
+            <div className="stat py-3 px-4">
+              <div className="stat-title text-xs">In Progress</div>
+              <div className="stat-value text-2xl text-primary">{inProgressTasks}</div>
+            </div>
+            <div className="stat py-3 px-4">
+              <div className="stat-title text-xs">Completed</div>
+              <div className="stat-value text-2xl text-success">{completedTasks}</div>
+            </div>
           </div>
-          <div className="stat py-3 px-4">
-            <div className="stat-title text-xs">In Progress</div>
-            <div className="stat-value text-2xl text-primary">{inProgressTasks}</div>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="btn btn-primary gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            New Task
+          </button>
+        </div>
+      </div>
+
+      {/* Filters & Search Bar */}
+      <div className="card bg-base-200 border border-base-300">
+        <div className="card-body p-4">
+          <div className="flex flex-wrap gap-3">
+            {/* Search */}
+            <div className="form-control flex-1 min-w-[200px]">
+              <div className="input-group">
+                <span className="bg-base-300">
+                  <Search className="w-4 h-4" />
+                </span>
+                <input
+                  type="text"
+                  placeholder="Search tasks..."
+                  className="input input-bordered w-full"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    className="btn btn-ghost btn-square"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Status Filter */}
+            <div className="form-control">
+              <select
+                className="select select-bordered"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+              >
+                <option value="all">All Status</option>
+                <option value="todo">To Do</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+
+            {/* Priority Filter */}
+            <div className="form-control">
+              <select
+                className="select select-bordered"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value as any)}
+              >
+                <option value="all">All Priorities</option>
+                <option value="high">High Priority</option>
+                <option value="medium">Medium Priority</option>
+                <option value="low">Low Priority</option>
+              </select>
+            </div>
+
+            {/* Clear Filters */}
+            {showingFiltered && (
+              <button
+                className="btn btn-ghost gap-2"
+                onClick={() => {
+                  setStatusFilter('all');
+                  setPriorityFilter('all');
+                  setSearchQuery('');
+                }}
+              >
+                <X className="w-4 h-4" />
+                Clear Filters
+              </button>
+            )}
           </div>
-          <div className="stat py-3 px-4">
-            <div className="stat-title text-xs">Completed</div>
-            <div className="stat-value text-2xl text-success">{completedTasks}</div>
-          </div>
+
+          {/* Filtered results indicator */}
+          {showingFiltered && (
+            <div className="text-sm text-base-content/60 mt-2">
+              Showing {filteredTotal} of {totalTasks} tasks
+            </div>
+          )}
         </div>
       </div>
 
       {/* Empty State or Task Sections */}
       {totalTasks === 0 ? (
         <EmptyState hasAnyTasks={false} />
+      ) : filteredTotal === 0 ? (
+        <div className="card bg-base-200 border-2 border-dashed border-base-300">
+          <div className="card-body items-center text-center py-16">
+            <Filter className="w-16 h-16 text-base-content/30 mb-4" />
+            <h3 className="text-xl font-bold mb-2">No tasks match your filters</h3>
+            <p className="text-base-content/60 max-w-md mb-4">
+              Try adjusting your search or filter criteria to see more tasks.
+            </p>
+            <button
+              onClick={() => {
+                setStatusFilter('all');
+                setPriorityFilter('all');
+                setSearchQuery('');
+              }}
+              className="btn btn-primary gap-2"
+            >
+              <X className="w-4 h-4" />
+              Clear All Filters
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="space-y-6">
           <PrioritySection
             priority="high"
             tasks={highPriorityTasks}
             onToggleComplete={handleToggleComplete}
+            onStatusChange={handleStatusChange}
           />
           <PrioritySection
             priority="medium"
             tasks={mediumPriorityTasks}
             onToggleComplete={handleToggleComplete}
+            onStatusChange={handleStatusChange}
           />
           <PrioritySection
             priority="low"
             tasks={lowPriorityTasks}
             onToggleComplete={handleToggleComplete}
+            onStatusChange={handleStatusChange}
           />
+        </div>
+      )}
+
+      {/* Create Task Modal */}
+      {isCreateModalOpen && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-2xl">
+            <h3 className="font-bold text-lg mb-4">Create New Task</h3>
+
+            <div className="space-y-4">
+              {/* Title */}
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text font-semibold">Title *</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter task title..."
+                  className="input input-bordered w-full"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              {/* Description */}
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text font-semibold">Description</span>
+                </label>
+                <textarea
+                  placeholder="Enter task description..."
+                  className="textarea textarea-bordered h-24"
+                  value={newTaskDescription}
+                  onChange={(e) => setNewTaskDescription(e.target.value)}
+                />
+              </div>
+
+              {/* Priority */}
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text font-semibold">Priority</span>
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    className={`btn flex-1 ${newTaskPriority === 'high' ? 'btn-error' : 'btn-outline'}`}
+                    onClick={() => setNewTaskPriority('high')}
+                  >
+                    High Priority
+                  </button>
+                  <button
+                    className={`btn flex-1 ${newTaskPriority === 'medium' ? 'btn-warning' : 'btn-outline'}`}
+                    onClick={() => setNewTaskPriority('medium')}
+                  >
+                    Medium Priority
+                  </button>
+                  <button
+                    className={`btn flex-1 ${newTaskPriority === 'low' ? 'btn-info' : 'btn-outline'}`}
+                    onClick={() => setNewTaskPriority('low')}
+                  >
+                    Low Priority
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-action">
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setNewTaskTitle('');
+                  setNewTaskDescription('');
+                  setNewTaskPriority('medium');
+                }}
+                disabled={isCreating}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary gap-2"
+                onClick={handleCreateTask}
+                disabled={!newTaskTitle.trim() || isCreating}
+              >
+                {isCreating ? (
+                  <>
+                    <span className="loading loading-spinner loading-sm"></span>
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Create Task
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => !isCreating && setIsCreateModalOpen(false)} />
         </div>
       )}
     </div>

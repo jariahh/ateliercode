@@ -13,6 +13,10 @@ pub struct Project {
     pub created_at: i64,
     pub last_activity: i64,
     pub settings: Option<String>,
+    /// Project icon (emoji, icon name, or path to custom icon)
+    pub icon: Option<String>,
+    /// Project color for theming (e.g., "purple", "blue", "green")
+    pub color: Option<String>,
 }
 
 impl Project {
@@ -24,11 +28,13 @@ impl Project {
             name,
             root_path,
             agent_type,
-            status: "idle".to_string(),
+            status: "active".to_string(),
             prd_content: None,
             created_at: now,
             last_activity: now,
             settings: None,
+            icon: None,
+            color: None,
         }
     }
 }
@@ -77,6 +83,7 @@ impl Task {
 pub struct ChatMessage {
     pub id: String,
     pub project_id: String,
+    pub session_id: Option<String>,
     pub role: String,
     pub content: String,
     pub timestamp: i64,
@@ -89,6 +96,25 @@ impl ChatMessage {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             project_id,
+            session_id: None,
+            role,
+            content,
+            timestamp: chrono::Utc::now().timestamp(),
+            metadata: None,
+        }
+    }
+
+    /// Create a new chat message instance with session_id
+    pub fn new_with_session(
+        project_id: String,
+        session_id: Option<String>,
+        role: String,
+        content: String,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            project_id,
+            session_id,
             role,
             content,
             timestamp: chrono::Utc::now().timestamp(),
@@ -108,6 +134,7 @@ pub struct AgentSession {
     pub ended_at: Option<i64>,
     pub status: String,
     pub exit_code: Option<i64>,
+    pub claude_session_id: Option<String>,
 }
 
 impl AgentSession {
@@ -122,6 +149,7 @@ impl AgentSession {
             ended_at: None,
             status: "running".to_string(),
             exit_code: None,
+            claude_session_id: None,
         }
     }
 }
@@ -237,5 +265,39 @@ impl Setting {
     /// Create a new setting
     pub fn new(key: String, value: String) -> Self {
         Self { key, value }
+    }
+}
+
+/// Chat tab model - represents an open chat tab in the UI
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChatTab {
+    pub id: String,
+    pub project_id: String,
+    pub agent_type: String,
+    pub session_id: Option<String>,
+    pub cli_session_id: Option<String>,
+    pub label: Option<String>,
+    pub tab_order: i64,
+    pub is_active: bool,
+    pub created_at: i64,
+    pub last_activity: i64,
+}
+
+impl ChatTab {
+    /// Create a new chat tab
+    pub fn new(project_id: String, agent_type: String, tab_order: i64) -> Self {
+        let now = chrono::Utc::now().timestamp();
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            project_id,
+            agent_type,
+            session_id: None,
+            cli_session_id: None,
+            label: None,
+            tab_order,
+            is_active: false,
+            created_at: now,
+            last_activity: now,
+        }
     }
 }

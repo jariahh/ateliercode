@@ -21,24 +21,33 @@ pub async fn detect_all_agents() -> Vec<AgentInfo> {
 
 /// Detect if Claude Code is installed
 async fn detect_claude_code() -> AgentInfo {
-    let command_name = "claude-code";
+    // The actual command is "claude", not "claude-code"
+    let command_name = "claude";
 
     match which(command_name) {
         Ok(_) => {
-            // Try to get version
-            let version = get_command_version(command_name, &["--version"]).await;
-            AgentInfo::new(
+            // Try to get version with -v flag (--version might not work)
+            let version = get_command_version(command_name, &["-v"]).await;
+            AgentInfo::with_display(
                 "Claude Code".to_string(),
                 command_name.to_string(),
                 true,
                 version,
+                Some("Claude".to_string()),
+                Some("Anthropic's Claude Code - specialized for coding tasks".to_string()),
+                Some("🟣".to_string()),
+                Some("purple".to_string()),
             )
         }
-        Err(_) => AgentInfo::new(
+        Err(_) => AgentInfo::with_display(
             "Claude Code".to_string(),
             command_name.to_string(),
             false,
             None,
+            Some("Claude".to_string()),
+            Some("Anthropic's Claude Code - specialized for coding tasks".to_string()),
+            Some("🟣".to_string()),
+            Some("purple".to_string()),
         ),
     }
 }
@@ -51,18 +60,26 @@ async fn detect_aider() -> AgentInfo {
         Ok(_) => {
             // Try to get version
             let version = get_command_version(command_name, &["--version"]).await;
-            AgentInfo::new(
+            AgentInfo::with_display(
                 "Aider".to_string(),
                 command_name.to_string(),
                 true,
                 version,
+                Some("Aider".to_string()),
+                Some("AI pair programming in your terminal".to_string()),
+                Some("🟠".to_string()),
+                Some("orange".to_string()),
             )
         }
-        Err(_) => AgentInfo::new(
+        Err(_) => AgentInfo::with_display(
             "Aider".to_string(),
             command_name.to_string(),
             false,
             None,
+            Some("Aider".to_string()),
+            Some("AI pair programming in your terminal".to_string()),
+            Some("🟠".to_string()),
+            Some("orange".to_string()),
         ),
     }
 }
@@ -88,35 +105,51 @@ async fn detect_github_copilot() -> AgentInfo {
                             None
                         };
 
-                        AgentInfo::new(
+                        AgentInfo::with_display(
                             "GitHub Copilot".to_string(),
                             "gh copilot".to_string(),
                             true,
                             version,
+                            Some("Copilot".to_string()),
+                            Some("GitHub Copilot - AI pair programmer".to_string()),
+                            Some("🟢".to_string()),
+                            Some("green".to_string()),
                         )
                     } else {
                         // gh exists but copilot extension is not installed
-                        AgentInfo::new(
+                        AgentInfo::with_display(
                             "GitHub Copilot".to_string(),
                             "gh copilot".to_string(),
                             false,
                             None,
+                            Some("Copilot".to_string()),
+                            Some("GitHub Copilot - AI pair programmer".to_string()),
+                            Some("🟢".to_string()),
+                            Some("green".to_string()),
                         )
                     }
                 }
-                Err(_) => AgentInfo::new(
+                Err(_) => AgentInfo::with_display(
                     "GitHub Copilot".to_string(),
                     "gh copilot".to_string(),
                     false,
                     None,
+                    Some("Copilot".to_string()),
+                    Some("GitHub Copilot - AI pair programmer".to_string()),
+                    Some("🟢".to_string()),
+                    Some("green".to_string()),
                 ),
             }
         }
-        Err(_) => AgentInfo::new(
+        Err(_) => AgentInfo::with_display(
             "GitHub Copilot".to_string(),
             "gh copilot".to_string(),
             false,
             None,
+            Some("Copilot".to_string()),
+            Some("GitHub Copilot - AI pair programmer".to_string()),
+            Some("🟢".to_string()),
+            Some("green".to_string()),
         ),
     }
 }

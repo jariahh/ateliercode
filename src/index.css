@@ -34,7 +34,7 @@
   }
 
   .chat-bubble .prose code {
-    background-color: rgba(0, 0, 0, 0.1);
+    @apply bg-base-300;
     padding: 0.125rem 0.25rem;
     border-radius: 0.25rem;
     font-size: 0.875em;
@@ -48,11 +48,11 @@
   }
 
   .chat-bubble-primary .prose code {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: oklch(var(--pc) / 0.15);
   }
 
   .chat-bubble-secondary .prose code {
-    background-color: rgba(0, 0, 0, 0.15);
+    background-color: oklch(var(--sc) / 0.15);
   }
 
   /* Syntax highlighter customization */

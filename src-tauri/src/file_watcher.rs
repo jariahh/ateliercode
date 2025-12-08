@@ -48,13 +48,17 @@ impl FileWatcherManager {
         let now = chrono::Utc::now().timestamp();
         sqlx::query(
             r#"
-            INSERT INTO agent_sessions (id, project_id, agent_type, started_at, status)
-            VALUES (?, ?, 'file_watcher', ?, 'running')
+            INSERT INTO agent_sessions (id, project_id, task_id, agent_type, started_at, ended_at, status, exit_code, claude_session_id)
+            VALUES (?, ?, ?, 'file_watcher', ?, ?, 'running', ?, ?)
             "#,
         )
         .bind(&session_id)
         .bind(&project_id)
+        .bind::<Option<String>>(None) // task_id
         .bind(now)
+        .bind::<Option<i64>>(None) // ended_at
+        .bind::<Option<i64>>(None) // exit_code
+        .bind::<Option<String>>(None) // claude_session_id
         .execute(&db_pool)
         .await
         .context("Failed to create watcher session")?;

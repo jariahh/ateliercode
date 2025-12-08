@@ -1,8 +1,13 @@
 use anyhow::{Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
-use sqlx::migrate::MigrateDatabase;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+
+// Embed migrations using Refinery
+mod embedded {
+    use refinery::embed_migrations;
+    embed_migrations!("migrations");
+}
 
 /// Database connection pool
 #[derive(Clone)]
@@ -14,15 +19,36 @@ impl Database {
     /// Initialize database connection and run migrations
     pub async fn init(app: &AppHandle) -> Result<Self> {
         let db_path = get_database_path(app)?;
-        let db_url = format!("sqlite:{}", db_path.to_string_lossy());
 
-        // Create database if it doesn't exist
-        if !sqlx::Sqlite::database_exists(&db_url).await? {
-            log::info!("Creating database at: {}", db_path.display());
-            sqlx::Sqlite::create_database(&db_url).await?;
+        log::info!("Initializing database at: {}", db_path.display());
+
+        // Ensure directory exists
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)
+                .context("Failed to create database directory")?;
         }
 
-        // Create connection pool
+        // Run migrations first using Refinery with rusqlite
+        log::info!("Running database migrations with Refinery...");
+        let mut conn = rusqlite::Connection::open(&db_path)
+            .context("Failed to open database for migrations")?;
+
+        match embedded::migrations::runner().run(&mut conn) {
+            Ok(report) => {
+                log::info!("Migrations applied successfully. Applied migrations: {:?}", report.applied_migrations());
+            }
+            Err(e) => {
+                log::error!("Migration failed: {:?}", e);
+                return Err(anyhow::anyhow!("Failed to run migrations: {}", e));
+            }
+        }
+
+        // Close rusqlite connection
+        drop(conn);
+
+        log::info!("Migrations completed successfully");
+
+        // Create SQLx connection pool
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(
@@ -33,13 +59,6 @@ impl Database {
             )
             .await
             .context("Failed to connect to database")?;
-
-        // Run migrations
-        log::info!("Running database migrations...");
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .context("Failed to run migrations")?;
 
         log::info!("Database initialized successfully");
 

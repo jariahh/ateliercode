@@ -1,326 +1,301 @@
-import { FC, useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useState, useEffect } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
-import { Check, X, FileCode, FilePlus, FileX, Clock, CheckCircle2, XCircle } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import {
+  FileText,
+  FilePlus,
+  FileEdit,
+  FileX,
+  Check,
+  X,
+  AlertCircle,
+  ChevronRight,
+  Loader2,
+} from 'lucide-react';
+import { readFileContent } from '../../api/files';
+
+interface ChangesTabProps {
+  projectId?: string;
+}
 
 interface FileChange {
   id: string;
-  project_id: string;
-  session_id: string;
-  file_path: string;
-  change_type: 'created' | 'modified' | 'deleted';
-  diff: string | null;
-  reviewed: boolean;
-  approved: boolean | null;
-  timestamp: number;
+  fileName: string;
+  filePath: string;
+  changeType: 'created' | 'modified' | 'deleted' | 'renamed';
+  timestamp: Date;
+  approved?: boolean;
+  rejected?: boolean;
 }
 
-interface ChangesTabProps {
-  projectId: string;
-}
+// Get icon for change type
+const getChangeIcon = (changeType: FileChange['changeType']) => {
+  switch (changeType) {
+    case 'created':
+      return <FilePlus className="w-4 h-4 text-success" />;
+    case 'modified':
+      return <FileEdit className="w-4 h-4 text-warning" />;
+    case 'deleted':
+      return <FileX className="w-4 h-4 text-error" />;
+    case 'renamed':
+      return <FileEdit className="w-4 h-4 text-info" />;
+    default:
+      return <FileText className="w-4 h-4" />;
+  }
+};
 
-export const ChangesTab: FC<ChangesTabProps> = ({ projectId }) => {
-  const [changes, setChanges] = useState<FileChange[]>([]);
+// Get badge color for change type
+const getChangeBadge = (changeType: FileChange['changeType']) => {
+  switch (changeType) {
+    case 'created':
+      return 'badge-success';
+    case 'modified':
+      return 'badge-warning';
+    case 'deleted':
+      return 'badge-error';
+    case 'renamed':
+      return 'badge-info';
+    default:
+      return 'badge-neutral';
+  }
+};
+
+// Get Monaco language from file extension
+const getMonacoLanguage = (fileName: string): string => {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+
+  switch (ext) {
+    case 'ts':
+    case 'tsx':
+      return 'typescript';
+    case 'js':
+    case 'jsx':
+      return 'javascript';
+    case 'json':
+      return 'json';
+    case 'html':
+      return 'html';
+    case 'css':
+      return 'css';
+    case 'scss':
+    case 'sass':
+      return 'scss';
+    case 'md':
+      return 'markdown';
+    case 'py':
+      return 'python';
+    case 'rs':
+      return 'rust';
+    case 'go':
+      return 'go';
+    case 'java':
+      return 'java';
+    case 'cpp':
+    case 'cc':
+    case 'cxx':
+      return 'cpp';
+    case 'c':
+      return 'c';
+    case 'cs':
+      return 'csharp';
+    case 'php':
+      return 'php';
+    case 'rb':
+      return 'ruby';
+    case 'sh':
+    case 'bash':
+      return 'shell';
+    case 'sql':
+      return 'sql';
+    case 'xml':
+      return 'xml';
+    case 'yaml':
+    case 'yml':
+      return 'yaml';
+    case 'toml':
+      return 'toml';
+    default:
+      return 'plaintext';
+  }
+};
+
+export default function ChangesTab({ projectId }: ChangesTabProps) {
+  // TODO: Implement file change tracking via file watcher or git integration
+  const [fileChanges, setFileChanges] = useState<FileChange[]>([]);
   const [selectedChange, setSelectedChange] = useState<FileChange | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isWatching, setIsWatching] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [originalContent, setOriginalContent] = useState<string>('');
+  const [modifiedContent, setModifiedContent] = useState<string>('');
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load changes
-  const loadChanges = useCallback(async () => {
-    try {
-      setLoading(true);
-
-      let allChanges: FileChange[];
-      if (filter === 'pending') {
-        allChanges = await invoke<FileChange[]>('get_pending_changes', { projectId });
-      } else {
-        allChanges = await invoke<FileChange[]>('get_all_changes', { projectId, limit: 100 });
-      }
-
-      // Filter based on selected filter
-      let filteredChanges = allChanges;
-      if (filter === 'approved') {
-        filteredChanges = allChanges.filter(c => c.reviewed && c.approved === true);
-      } else if (filter === 'rejected') {
-        filteredChanges = allChanges.filter(c => c.reviewed && c.approved === false);
-      } else if (filter === 'pending') {
-        filteredChanges = allChanges.filter(c => !c.reviewed);
-      }
-
-      setChanges(filteredChanges);
-
-      // Select first change if none selected
-      if (!selectedChange && filteredChanges.length > 0) {
-        setSelectedChange(filteredChanges[0]);
-      }
-    } catch (error) {
-      console.error('Failed to load changes:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId, filter, selectedChange]);
-
-  // Check if project is being watched
-  const checkWatchingStatus = useCallback(async () => {
-    try {
-      const watching = await invoke<boolean>('is_watching_project', { projectId });
-      setIsWatching(watching);
-    } catch (error) {
-      console.error('Failed to check watching status:', error);
-    }
-  }, [projectId]);
-
-  // Start watching
-  const startWatching = async () => {
-    try {
-      await invoke('start_watching_project', { projectId });
-      setIsWatching(true);
-      await loadChanges();
-    } catch (error) {
-      console.error('Failed to start watching:', error);
-      alert('Failed to start watching: ' + error);
-    }
-  };
-
-  // Stop watching
-  const stopWatching = async () => {
-    try {
-      await invoke('stop_watching_project', { projectId });
-      setIsWatching(false);
-    } catch (error) {
-      console.error('Failed to stop watching:', error);
-      alert('Failed to stop watching: ' + error);
-    }
-  };
-
-  // Approve a change
-  const approveChange = async (changeId: string) => {
-    try {
-      await invoke('approve_change', { changeId });
-      await loadChanges();
-
-      // Update selected change if it was approved
-      if (selectedChange?.id === changeId) {
-        const updated = await invoke<FileChange>('approve_change', { changeId });
-        setSelectedChange(updated);
-      }
-    } catch (error) {
-      console.error('Failed to approve change:', error);
-      alert('Failed to approve change: ' + error);
-    }
-  };
-
-  // Reject a change
-  const rejectChange = async (changeId: string) => {
-    try {
-      await invoke('reject_change', { changeId });
-      await loadChanges();
-
-      // Update selected change if it was rejected
-      if (selectedChange?.id === changeId) {
-        const updated = await invoke<FileChange>('reject_change', { changeId });
-        setSelectedChange(updated);
-      }
-    } catch (error) {
-      console.error('Failed to reject change:', error);
-      alert('Failed to reject change: ' + error);
-    }
-  };
-
-  // Load changes and check watching status on mount and when filter changes
+  // Load file content when a change is selected
   useEffect(() => {
-    loadChanges();
-    checkWatchingStatus();
+    const loadFileContent = async () => {
+      if (!selectedChange || !projectId) return;
 
-    // Poll for new changes every 5 seconds
-    const interval = setInterval(() => {
-      loadChanges();
-    }, 5000);
+      setIsLoadingContent(true);
+      setError(null);
 
-    return () => clearInterval(interval);
-  }, [loadChanges, checkWatchingStatus]);
+      try {
+        // For deleted files, we can't read the current content
+        if (selectedChange.changeType === 'deleted') {
+          setOriginalContent('// File was deleted');
+          setModifiedContent('');
+          setIsLoadingContent(false);
+          return;
+        }
 
-  // Parse diff to get original and modified content
-  const parseDiff = (diff: string | null, changeType: string): { original: string; modified: string } => {
-    if (!diff) {
-      return { original: '', modified: '' };
-    }
+        // For created files, original is empty
+        if (selectedChange.changeType === 'created') {
+          setOriginalContent('');
+          const content = await readFileContent(projectId, selectedChange.filePath);
+          setModifiedContent(content);
+          setIsLoadingContent(false);
+          return;
+        }
 
-    if (changeType === 'deleted') {
-      // For deleted files, show the original content
-      const lines = diff.split('\n').filter(line => line.startsWith('-') && !line.startsWith('---'));
-      const original = lines.map(line => line.substring(1)).join('\n');
-      return { original, modified: '' };
-    }
+        // For modified files, we read the current content
+        // Note: In a real implementation, we'd need to get the original content from git or a backup
+        // For now, we'll show the current content as "modified" and empty as "original"
+        // This is a limitation that would need backend support to properly implement
+        const content = await readFileContent(projectId, selectedChange.filePath);
+        setOriginalContent('// Original content not available\n// Backend integration needed to retrieve previous version');
+        setModifiedContent(content);
 
-    if (changeType === 'created') {
-      // For created files, show the new content
-      const lines = diff.split('\n').filter(line => line.startsWith('+') && !line.startsWith('+++'));
-      const modified = lines.map(line => line.substring(1)).join('\n');
-      return { original: '', modified };
-    }
-
-    // For modified files, reconstruct both versions
-    const lines = diff.split('\n');
-    const originalLines: string[] = [];
-    const modifiedLines: string[] = [];
-
-    for (const line of lines) {
-      if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('@@')) {
-        continue;
+      } catch (err) {
+        console.error('Failed to load file content:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load file content');
+        setOriginalContent('');
+        setModifiedContent('');
+      } finally {
+        setIsLoadingContent(false);
       }
-
-      if (line.startsWith('-')) {
-        originalLines.push(line.substring(1));
-      } else if (line.startsWith('+')) {
-        modifiedLines.push(line.substring(1));
-      } else if (line.startsWith(' ')) {
-        const content = line.substring(1);
-        originalLines.push(content);
-        modifiedLines.push(content);
-      }
-    }
-
-    return {
-      original: originalLines.join('\n'),
-      modified: modifiedLines.join('\n'),
     };
+
+    loadFileContent();
+  }, [selectedChange, projectId]);
+
+  const handleApprove = (change: FileChange) => {
+    console.log('Approving change:', change);
+    setFileChanges((prev) =>
+      prev.map((c) =>
+        c.id === change.id ? { ...c, approved: true, rejected: false } : c
+      )
+    );
   };
 
-  const getChangeIcon = (changeType: string) => {
-    switch (changeType) {
-      case 'created':
-        return <FilePlus className="w-4 h-4 text-green-500" />;
-      case 'modified':
-        return <FileCode className="w-4 h-4 text-blue-500" />;
-      case 'deleted':
-        return <FileX className="w-4 h-4 text-red-500" />;
-      default:
-        return <FileCode className="w-4 h-4" />;
-    }
+  const handleReject = (change: FileChange) => {
+    console.log('Rejecting change:', change);
+    setFileChanges((prev) =>
+      prev.map((c) =>
+        c.id === change.id ? { ...c, rejected: true, approved: false } : c
+      )
+    );
   };
 
-  const getStatusBadge = (change: FileChange) => {
-    if (!change.reviewed) {
-      return <span className="badge badge-warning badge-sm">Pending</span>;
-    }
-    if (change.approved === true) {
-      return <span className="badge badge-success badge-sm">Approved</span>;
-    }
-    if (change.approved === false) {
-      return <span className="badge badge-error badge-sm">Rejected</span>;
-    }
-    return null;
+  const formatTimestamp = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (seconds < 60) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return date.toLocaleDateString();
   };
 
-  const { original, modified } = selectedChange
-    ? parseDiff(selectedChange.diff, selectedChange.change_type)
-    : { original: '', modified: '' };
-
-  return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold">File Changes</h2>
-
-          {/* Filter tabs */}
-          <div className="tabs tabs-boxed">
-            <a
-              className={`tab ${filter === 'pending' ? 'tab-active' : ''}`}
-              onClick={() => setFilter('pending')}
-            >
-              Pending
-            </a>
-            <a
-              className={`tab ${filter === 'all' ? 'tab-active' : ''}`}
-              onClick={() => setFilter('all')}
-            >
-              All
-            </a>
-            <a
-              className={`tab ${filter === 'approved' ? 'tab-active' : ''}`}
-              onClick={() => setFilter('approved')}
-            >
-              Approved
-            </a>
-            <a
-              className={`tab ${filter === 'rejected' ? 'tab-active' : ''}`}
-              onClick={() => setFilter('rejected')}
-            >
-              Rejected
-            </a>
+  // Show error if no project ID
+  if (!projectId) {
+    return (
+      <div className="card bg-base-200 h-[calc(100vh-16rem)]">
+        <div className="card-body flex items-center justify-center">
+          <div className="text-center">
+            <AlertCircle className="w-16 h-16 mx-auto mb-4 opacity-20" />
+            <h3 className="text-xl font-bold mb-2">No Project Selected</h3>
+            <p className="text-base-content/60">Please select a project to view changes.</p>
           </div>
         </div>
-
-        {/* Watch toggle */}
-        <div className="flex items-center gap-2">
-          {isWatching ? (
-            <>
-              <span className="text-sm text-success flex items-center gap-1">
-                <Clock className="w-4 h-4 animate-pulse" />
-                Watching
-              </span>
-              <button className="btn btn-sm btn-outline" onClick={stopWatching}>
-                Stop Watching
-              </button>
-            </>
-          ) : (
-            <button className="btn btn-sm btn-primary" onClick={startWatching}>
-              Start Watching
-            </button>
-          )}
-        </div>
       </div>
+    );
+  }
 
-      {/* Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Changes list */}
-        <div className="w-80 border-r flex flex-col">
+  return (
+    <div className="card bg-base-200 h-[calc(100vh-16rem)]">
+      <div className="card-body p-0 flex flex-row h-full">
+        {/* Left side - File changes list */}
+        <div className="w-[30%] border-r border-base-300 flex flex-col">
+          {/* Header */}
+          <div className="p-4 border-b border-base-300">
+            <h3 className="font-semibold text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Changes
+              {fileChanges.length > 0 && (
+                <span className="badge badge-neutral">{fileChanges.length}</span>
+              )}
+            </h3>
+            <p className="text-xs text-base-content/60 mt-1">
+              Files modified by AI agent
+            </p>
+          </div>
+
+          {/* File list */}
           <div className="flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="flex items-center justify-center h-full">
-                <span className="loading loading-spinner loading-md"></span>
-              </div>
-            ) : changes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <FileCode className="w-12 h-12 mb-2 opacity-50" />
-                <p className="text-sm text-center">
-                  {filter === 'pending' ? 'No pending changes' : 'No changes found'}
+            {fileChanges.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                <FileText className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                <p className="text-sm font-medium text-base-content/60">No changes yet</p>
+                <p className="text-xs text-base-content/50 mt-1">
+                  File changes will appear here when the agent modifies files
                 </p>
-                {!isWatching && (
-                  <p className="text-xs text-center mt-2">
-                    Start watching to track file changes
-                  </p>
-                )}
               </div>
             ) : (
-              <div className="divide-y">
-                {changes.map((change) => (
+              <div className="space-y-1 p-2">
+                {fileChanges.map((change) => (
                   <div
                     key={change.id}
-                    className={`p-3 cursor-pointer hover:bg-base-200 transition-colors ${
-                      selectedChange?.id === change.id ? 'bg-base-200' : ''
+                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                      selectedChange?.id === change.id
+                        ? 'bg-primary/20 border border-primary/30'
+                        : 'bg-base-300 hover:bg-base-100/50'
+                    } ${
+                      change.approved
+                        ? 'border-l-4 border-l-success'
+                        : change.rejected
+                        ? 'border-l-4 border-l-error'
+                        : ''
                     }`}
                     onClick={() => setSelectedChange(change)}
                   >
                     <div className="flex items-start gap-2">
-                      {getChangeIcon(change.change_type)}
+                      <div className="flex-shrink-0 mt-0.5">
+                        {getChangeIcon(change.changeType)}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium truncate">
-                            {change.file_path}
+                          <span className="font-medium text-sm truncate">
+                            {change.fileName}
+                          </span>
+                          <span className={`badge badge-xs ${getChangeBadge(change.changeType)}`}>
+                            {change.changeType}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
-                          {getStatusBadge(change)}
-                          <span className="capitalize">{change.change_type}</span>
-                          <span>•</span>
-                          <span>{formatDistanceToNow(change.timestamp * 1000, { addSuffix: true })}</span>
+                        <div className="text-xs text-base-content/60 truncate">
+                          {change.filePath}
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs text-base-content/50">
+                            {formatTimestamp(change.timestamp)}
+                          </span>
+                          {change.approved && (
+                            <span className="badge badge-success badge-xs">Approved</span>
+                          )}
+                          {change.rejected && (
+                            <span className="badge badge-error badge-xs">Rejected</span>
+                          )}
                         </div>
                       </div>
+                      <ChevronRight className="w-4 h-4 flex-shrink-0 text-base-content/30" />
                     </div>
                   </div>
                 ))}
@@ -329,105 +304,113 @@ export const ChangesTab: FC<ChangesTabProps> = ({ projectId }) => {
           </div>
         </div>
 
-        {/* Diff viewer */}
-        <div className="flex-1 flex flex-col">
+        {/* Right side - Diff viewer */}
+        <div className="flex-1 bg-base-100 flex flex-col">
           {selectedChange ? (
             <>
-              {/* Selected file header */}
-              <div className="flex items-center justify-between p-4 border-b bg-base-100">
-                <div className="flex items-center gap-3">
-                  {getChangeIcon(selectedChange.change_type)}
-                  <div>
-                    <h3 className="font-medium">{selectedChange.file_path}</h3>
-                    <p className="text-xs text-gray-500">
-                      {selectedChange.change_type} • {formatDistanceToNow(selectedChange.timestamp * 1000, { addSuffix: true })}
-                    </p>
+              {/* Header with file info and actions */}
+              <div className="border-b border-base-300 p-4 bg-base-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    {getChangeIcon(selectedChange.changeType)}
+                    <div>
+                      <h3 className="font-semibold">{selectedChange.fileName}</h3>
+                      <p className="text-xs text-base-content/60">{selectedChange.filePath}</p>
+                    </div>
+                    <span className={`badge ${getChangeBadge(selectedChange.changeType)}`}>
+                      {selectedChange.changeType}
+                    </span>
+                  </div>
+
+                  {/* Approve/Reject buttons */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      className={`btn btn-sm gap-2 ${
+                        selectedChange.rejected ? 'btn-error' : 'btn-outline btn-error'
+                      }`}
+                      onClick={() => handleReject(selectedChange)}
+                      disabled={selectedChange.rejected}
+                    >
+                      <X className="w-4 h-4" />
+                      {selectedChange.rejected ? 'Rejected' : 'Reject'}
+                    </button>
+                    <button
+                      className={`btn btn-sm gap-2 ${
+                        selectedChange.approved ? 'btn-success' : 'btn-outline btn-success'
+                      }`}
+                      onClick={() => handleApprove(selectedChange)}
+                      disabled={selectedChange.approved}
+                    >
+                      <Check className="w-4 h-4" />
+                      {selectedChange.approved ? 'Approved' : 'Approve'}
+                    </button>
                   </div>
                 </div>
 
-                {/* Action buttons */}
-                {!selectedChange.reviewed && (
-                  <div className="flex gap-2">
-                    <button
-                      className="btn btn-sm btn-success gap-2"
-                      onClick={() => approveChange(selectedChange.id)}
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Approve
-                    </button>
-                    <button
-                      className="btn btn-sm btn-error gap-2"
-                      onClick={() => rejectChange(selectedChange.id)}
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Reject
-                    </button>
-                  </div>
-                )}
-                {selectedChange.reviewed && (
-                  <div className="flex items-center gap-2">
-                    {selectedChange.approved ? (
-                      <span className="badge badge-success gap-1">
-                        <Check className="w-3 h-3" />
-                        Approved
-                      </span>
-                    ) : (
-                      <span className="badge badge-error gap-1">
-                        <X className="w-3 h-3" />
-                        Rejected
-                      </span>
-                    )}
+                {/* Error message */}
+                {error && (
+                  <div className="alert alert-error alert-sm">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="text-xs">{error}</span>
                   </div>
                 )}
               </div>
 
               {/* Diff editor */}
               <div className="flex-1 overflow-hidden">
-                {selectedChange.change_type === 'deleted' ? (
-                  <div className="h-full bg-base-200 p-4">
-                    <div className="alert alert-error">
-                      <FileX className="w-5 h-5" />
-                      <span>This file was deleted</span>
+                {isLoadingContent ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                      <span className="text-sm text-base-content/60">Loading file content...</span>
                     </div>
-                    {original && (
-                      <div className="mt-4">
-                        <h4 className="font-medium mb-2">Original content:</h4>
-                        <pre className="bg-base-100 p-4 rounded-lg overflow-auto max-h-96">
-                          <code>{original}</code>
-                        </pre>
-                      </div>
-                    )}
                   </div>
-                ) : selectedChange.diff ? (
+                ) : selectedChange.changeType === 'deleted' ? (
+                  <div className="h-full flex items-center justify-center text-base-content/50">
+                    <div className="text-center">
+                      <FileX className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                      <p className="font-semibold text-lg text-base-content">
+                        File Deleted
+                      </p>
+                      <p className="text-sm mt-2">
+                        This file was removed by the agent
+                      </p>
+                    </div>
+                  </div>
+                ) : (
                   <DiffEditor
                     height="100%"
-                    language="plaintext"
-                    original={original}
-                    modified={modified}
+                    language={getMonacoLanguage(selectedChange.fileName)}
+                    original={originalContent}
+                    modified={modifiedContent}
                     theme="vs-dark"
                     options={{
                       readOnly: true,
                       renderSideBySide: true,
                       minimap: { enabled: false },
+                      lineNumbers: 'on',
+                      renderWhitespace: 'selection',
                       scrollBeyondLastLine: false,
                       fontSize: 13,
-                      lineNumbers: 'on',
-                      wordWrap: 'on',
                       automaticLayout: true,
+                      wordWrap: 'off',
+                      ignoreTrimWhitespace: false,
+                      renderOverviewRuler: true,
+                      enableSplitViewResizing: true,
+                      originalEditable: false,
                     }}
                   />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500">
-                    <p>No diff available for this change</p>
-                  </div>
                 )}
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="h-full flex items-center justify-center text-base-content/50">
               <div className="text-center">
-                <FileCode className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p>Select a change to view the diff</p>
+                <FileText className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                <p className="font-medium">Select a file to view changes</p>
+                <p className="text-xs mt-2">
+                  Choose a file from the list to see the diff
+                </p>
               </div>
             </div>
           )}
@@ -435,4 +418,4 @@ export const ChangesTab: FC<ChangesTabProps> = ({ projectId }) => {
       </div>
     </div>
   );
-};
+}

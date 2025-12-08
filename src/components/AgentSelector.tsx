@@ -65,8 +65,10 @@ export default function AgentSelector({ value, onChange, error }: AgentSelectorP
 
           return {
             type: agent.name as AgentType,
-            name: metadata.displayName,
-            description: metadata.description,
+            // Prefer display_name from plugin, fallback to metadata
+            name: agent.display_name || metadata.displayName,
+            // Prefer description from plugin, fallback to metadata
+            description: agent.description || metadata.description,
             icon: metadata.icon,
             installed: agent.installed,
             recommended: metadata.recommended,

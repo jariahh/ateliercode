@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import Editor from '@monaco-editor/react';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { readProjectFiles, readFileContent, type FileNode } from '../../api/files';
 
 // File type icons mapping
@@ -184,6 +185,33 @@ const mockFileStructure: FileNodeWithContent[] = [
   },
 ];
 
+// Highlight matched text component
+interface HighlightedTextProps {
+  text: string;
+  query: string;
+}
+
+function HighlightedText({ text, query }: HighlightedTextProps) {
+  if (!query) {
+    return <span>{text}</span>;
+  }
+
+  const parts = text.split(new RegExp(`(${query})`, 'gi'));
+  return (
+    <span>
+      {parts.map((part, index) =>
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={index} className="bg-warning text-warning-content px-0.5 rounded">
+            {part}
+          </mark>
+        ) : (
+          <span key={index}>{part}</span>
+        )
+      )}
+    </span>
+  );
+}
+
 // File tree item component
 interface FileTreeItemProps {
   node: FileNodeWithContent;
@@ -192,6 +220,7 @@ interface FileTreeItemProps {
   expandedIds: Set<string>;
   onSelect: (node: FileNodeWithContent) => void;
   onToggle: (id: string) => void;
+  searchQuery?: string;
 }
 
 function FileTreeItem({
@@ -201,6 +230,7 @@ function FileTreeItem({
   expandedIds,
   onSelect,
   onToggle,
+  searchQuery = '',
 }: FileTreeItemProps) {
   const isExpanded = expandedIds.has(node.id);
   const isSelected = selectedId === node.id;
@@ -243,7 +273,9 @@ function FileTreeItem({
           )}
         </span>
 
-        <span className="text-sm truncate">{node.name}</span>
+        <span className="text-sm truncate">
+          <HighlightedText text={node.name} query={searchQuery} />
+        </span>
       </div>
 
       {isFolder && isExpanded && node.children && (
@@ -257,6 +289,7 @@ function FileTreeItem({
               expandedIds={expandedIds}
               onSelect={onSelect}
               onToggle={onToggle}
+              searchQuery={searchQuery}
             />
           ))}
         </div>
@@ -381,6 +414,60 @@ function QuickFileSearch({ fileTree, onSelect, onClose }: QuickFileSearchProps) 
   );
 }
 
+// Filter file tree based on search query
+const filterFileTree = (
+  nodes: FileNodeWithContent[],
+  query: string
+): { filteredNodes: FileNodeWithContent[]; matchCount: number } => {
+  if (!query.trim()) {
+    return { filteredNodes: nodes, matchCount: 0 };
+  }
+
+  const lowerQuery = query.toLowerCase();
+  let totalMatches = 0;
+
+  const filterNode = (node: FileNodeWithContent): FileNodeWithContent | null => {
+    const nameMatches = node.name.toLowerCase().includes(lowerQuery);
+    const pathMatches = node.path.toLowerCase().includes(lowerQuery);
+
+    if (node.type === 'file') {
+      if (nameMatches || pathMatches) {
+        totalMatches++;
+        return node;
+      }
+      return null;
+    }
+
+    // For folders, check if any children match
+    if (node.children) {
+      const filteredChildren = node.children
+        .map(child => filterNode(child))
+        .filter((child): child is FileNodeWithContent => child !== null);
+
+      if (filteredChildren.length > 0) {
+        return {
+          ...node,
+          children: filteredChildren,
+        };
+      }
+    }
+
+    // Include folder if its name matches, even if no children match
+    if (nameMatches) {
+      totalMatches++;
+      return node;
+    }
+
+    return null;
+  };
+
+  const filteredNodes = nodes
+    .map(node => filterNode(node))
+    .filter((node): node is FileNodeWithContent => node !== null);
+
+  return { filteredNodes, matchCount: totalMatches };
+};
+
 // Main FilesTab component props
 interface FilesTabProps {
   projectId?: string;
@@ -392,11 +479,13 @@ export default function FilesTab({ projectId }: FilesTabProps) {
   const [selectedFile, setSelectedFile] = useState<FileNodeWithContent | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isLoadingTree, setIsLoadingTree] = useState(false);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showQuickSearch, setShowQuickSearch] = useState(false);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Keyboard shortcuts
   useHotkeys('ctrl+p, cmd+p', (e) => {
@@ -404,12 +493,51 @@ export default function FilesTab({ projectId }: FilesTabProps) {
     setShowQuickSearch(true);
   });
 
+  // Keyboard shortcut for inline search (Ctrl/Cmd+F)
+  useHotkeys('ctrl+f, cmd+f', (e) => {
+    e.preventDefault();
+    searchInputRef.current?.focus();
+  });
+
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Auto-expand folders when searching
+  useEffect(() => {
+    if (debouncedSearchQuery.trim()) {
+      // Expand all folders that contain matches
+      const expandAllMatchingFolders = (nodes: FileNodeWithContent[]): string[] => {
+        const ids: string[] = [];
+        for (const node of nodes) {
+          if (node.type === 'folder') {
+            ids.push(node.id);
+            if (node.children) {
+              ids.push(...expandAllMatchingFolders(node.children));
+            }
+          }
+        }
+        return ids;
+      };
+
+      const { filteredNodes } = filterFileTree(fileTree, debouncedSearchQuery);
+      const idsToExpand = expandAllMatchingFolders(filteredNodes);
+      setExpandedIds(new Set(idsToExpand));
+    }
+  }, [debouncedSearchQuery, fileTree]);
+
   // Load file tree on mount
   useEffect(() => {
     const loadFiles = async () => {
       if (!projectId) {
-        // Use mock data if no project ID
-        setFileTree(mockFileStructure);
+        // Show empty state if no project ID
+        setFileTree([]);
+        setError('No project selected');
         return;
       }
 
@@ -421,9 +549,10 @@ export default function FilesTab({ projectId }: FilesTabProps) {
         setFileTree(files as FileNodeWithContent[]);
       } catch (err) {
         console.error('Failed to load project files:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load files');
-        // Fallback to mock data on error
-        setFileTree(mockFileStructure);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load files';
+        setError(errorMessage);
+        // Show empty state on error instead of mock data
+        setFileTree([]);
       } finally {
         setIsLoadingTree(false);
       }
@@ -488,35 +617,63 @@ export default function FilesTab({ projectId }: FilesTabProps) {
     setEditorCollapsed(!editorCollapsed);
   };
 
+  const clearSearch = () => {
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+  };
+
   // Get breadcrumb path
   const getBreadcrumbs = (): string[] => {
     if (!selectedFile) return [];
     return selectedFile.path.split(/[/\\]/).filter(Boolean);
   };
 
+  // Get filtered file tree and match count
+  const { filteredNodes: displayedFileTree, matchCount } = filterFileTree(
+    fileTree,
+    debouncedSearchQuery
+  );
+
   return (
     <>
       <div className="card bg-base-200 h-[calc(100vh-16rem)]">
-        <div className="card-body p-0 flex flex-row h-full">
+        <PanelGroup direction="horizontal" className="h-full" autoSaveId="files-panels">
           {/* Left side - File tree */}
-          <div
-            className={`border-r border-base-300 flex flex-col transition-all duration-300 ${
-              editorCollapsed ? 'w-full' : 'w-[30%]'
-            }`}
-          >
+          <Panel defaultSize={30} minSize={20} maxSize={editorCollapsed ? 100 : 50}>
+          <div className="border-r border-base-300 flex flex-col h-full">
             {/* Search bar */}
             <div className="p-4 border-b border-base-300">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/50" />
                 <input
+                  ref={searchInputRef}
                   type="text"
-                  placeholder="Search files... (Ctrl/Cmd+P)"
-                  className="input input-sm input-bordered w-full pl-9"
+                  placeholder="Search files... (Ctrl/Cmd+F)"
+                  className="input input-sm input-bordered w-full pl-9 pr-8"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => setShowQuickSearch(true)}
                 />
+                {searchQuery && (
+                  <button
+                    className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
+                    onClick={clearSearch}
+                    title="Clear search"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
+              {debouncedSearchQuery && (
+                <div className="mt-2 text-xs text-base-content/60">
+                  {matchCount === 0 ? (
+                    <span className="text-warning">No matches found</span>
+                  ) : (
+                    <span>
+                      {matchCount} {matchCount === 1 ? 'match' : 'matches'} found
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Error message */}
@@ -533,15 +690,45 @@ export default function FilesTab({ projectId }: FilesTabProps) {
                 <div className="flex items-center justify-center h-full">
                   <span className="loading loading-spinner loading-md"></span>
                 </div>
-              ) : fileTree.length === 0 ? (
+              ) : displayedFileTree.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-base-content/50">
-                  <div className="text-center">
-                    <Folder className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                    <p className="text-sm">No files found</p>
+                  <div className="text-center max-w-md px-4">
+                    {debouncedSearchQuery ? (
+                      <>
+                        <Search className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                        <p className="text-sm font-medium mb-2">No files match your search</p>
+                        <p className="text-xs">
+                          Try a different search term or{' '}
+                          <button
+                            className="link link-primary"
+                            onClick={clearSearch}
+                          >
+                            clear the search
+                          </button>
+                        </p>
+                      </>
+                    ) : fileTree.length === 0 ? (
+                      <>
+                        <Folder className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                        {error ? (
+                          <>
+                            <p className="text-sm font-medium mb-2">Unable to load files</p>
+                            <p className="text-xs text-error mb-3">{error}</p>
+                            {error.includes('Project not found') && (
+                              <p className="text-xs">
+                                This project no longer exists. Please create a new project or open an existing one from the home page.
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm">No files found</p>
+                        )}
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ) : (
-                fileTree.map((node) => (
+                displayedFileTree.map((node) => (
                   <FileTreeItem
                     key={node.id}
                     node={node}
@@ -550,15 +737,20 @@ export default function FilesTab({ projectId }: FilesTabProps) {
                     expandedIds={expandedIds}
                     onSelect={handleSelect}
                     onToggle={handleToggle}
+                    searchQuery={debouncedSearchQuery}
                   />
                 ))
               )}
             </div>
           </div>
+          </Panel>
 
           {/* Right side - Monaco Editor */}
           {!editorCollapsed && (
-            <div className="flex-1 bg-base-100 flex flex-col">
+            <>
+            <PanelResizeHandle className="w-2 bg-base-300 hover:bg-primary transition-colors cursor-col-resize" />
+            <Panel defaultSize={70} minSize={50}>
+            <div className="bg-base-100 flex flex-col h-full">
               {selectedFile ? (
                 <>
                   {/* Header with breadcrumbs and file info */}
@@ -687,19 +879,21 @@ export default function FilesTab({ projectId }: FilesTabProps) {
                 </div>
               )}
             </div>
+            </Panel>
+            </>
           )}
+        </PanelGroup>
 
-          {/* Show editor button when collapsed */}
-          {editorCollapsed && selectedFile && selectedFile.type === 'file' && (
-            <button
-              className="absolute top-4 right-4 btn btn-primary btn-sm gap-2"
-              onClick={toggleEditor}
-            >
-              <Maximize2 className="w-4 h-4" />
-              Show Editor
-            </button>
-          )}
-        </div>
+        {/* Show editor button when collapsed */}
+        {editorCollapsed && selectedFile && selectedFile.type === 'file' && (
+          <button
+            className="absolute top-4 right-4 btn btn-primary btn-sm gap-2"
+            onClick={toggleEditor}
+          >
+            <Maximize2 className="w-4 h-4" />
+            Show Editor
+          </button>
+        )}
       </div>
 
       {/* Quick file search modal */}

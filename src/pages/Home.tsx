@@ -1,25 +1,38 @@
 import { useNavigate } from 'react-router-dom';
 import { useProjectStore } from '../stores/projectStore';
-import { Plus, Folder, Clock, Archive } from 'lucide-react';
-import { useEffect } from 'react';
+import { Plus, Folder, Clock, Archive, CheckCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export default function Home() {
   const navigate = useNavigate();
   const projects = useProjectStore((state) => state.projects);
   const loadProjects = useProjectStore((state) => state.loadProjects);
+  const updateProject = useProjectStore((state) => state.updateProject);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
 
   const activeProjects = projects.filter((p) => p.status === 'active');
-  const recentProjects = [...activeProjects]
+  const displayProjects = showAll ? projects : activeProjects;
+  const recentProjects = [...displayProjects]
     .sort((a, b) => {
       const aTime = a.lastOpenedAt || a.createdAt;
       const bTime = b.lastOpenedAt || b.createdAt;
       return new Date(bTime).getTime() - new Date(aTime).getTime();
     })
     .slice(0, 6);
+
+  const handleActivateProject = async (projectId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation
+    try {
+      await updateProject(projectId, { status: 'active' });
+      await loadProjects(); // Refresh the list
+    } catch (error) {
+      console.error('Failed to activate project:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-base-100">
@@ -28,7 +41,18 @@ export default function Home() {
         <div className="flex-1">
           <a className="btn btn-ghost text-xl">AtelierCode</a>
         </div>
-        <div className="flex-none gap-2 flex">
+        <div className="flex-none gap-2 flex items-center">
+          {projects.length > 0 && (
+            <label className="label cursor-pointer gap-2">
+              <span className="label-text text-sm">Show All</span>
+              <input
+                type="checkbox"
+                className="toggle toggle-sm"
+                checked={showAll}
+                onChange={(e) => setShowAll(e.target.checked)}
+              />
+            </label>
+          )}
           <button
             onClick={() => navigate('/wizard?mode=existing')}
             className="btn btn-ghost gap-2"
@@ -47,8 +71,8 @@ export default function Home() {
       </div>
 
       {/* Main Content */}
-      <div className="container mx-auto p-8">
-        {activeProjects.length === 0 ? (
+      <div className="p-8">
+        {recentProjects.length === 0 ? (
           // Empty State
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="w-24 h-24 rounded-full bg-base-200 flex items-center justify-center mb-6">
@@ -83,7 +107,19 @@ export default function Home() {
                     className="card bg-base-200 hover:shadow-lg transition-all duration-200 cursor-pointer hover:scale-[1.02]"
                   >
                     <div className="card-body">
-                      <h3 className="card-title text-lg">{project.name}</h3>
+                      <div className="flex items-start justify-between">
+                        <h3 className="card-title text-lg">{project.name}</h3>
+                        {project.status !== 'active' && (
+                          <button
+                            onClick={(e) => handleActivateProject(project.id, e)}
+                            className="btn btn-xs btn-success gap-1"
+                            title="Activate project"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            Activate
+                          </button>
+                        )}
+                      </div>
 
                       {project.description && (
                         <p className="text-sm text-base-content/70 line-clamp-2">
@@ -92,8 +128,11 @@ export default function Home() {
                       )}
 
                       <div className="flex flex-wrap gap-2 mt-2">
-                        <div className="badge badge-primary badge-sm">
+                        <div className={`badge badge-sm ${project.status === 'active' ? 'badge-primary' : 'badge-ghost'}`}>
                           {project.agent.type}
+                        </div>
+                        <div className={`badge badge-sm ${project.status === 'active' ? 'badge-success' : 'badge-warning'}`}>
+                          {project.status}
                         </div>
                         {project.tags?.map((tag) => (
                           <div key={tag} className="badge badge-outline badge-sm">

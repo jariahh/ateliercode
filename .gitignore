@@ -36,3 +36,4 @@ src-tauri/target
 Thumbs.db
 .DS_Store
 nul
+*.png
