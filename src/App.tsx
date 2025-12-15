@@ -8,6 +8,7 @@ import ThemeSelector from './components/ThemeSelector';
 import ProjectSidebar from './components/ProjectSidebar';
 import ErrorBoundary from './components/ErrorBoundary';
 import AuthDialog from './components/AuthDialog';
+import UserIndicator from './components/UserIndicator';
 import { initServerConnection } from './services/serverConnection';
 import { useAuthStore } from './stores/authStore';
 import { isWeb } from './lib/platform';
@@ -54,6 +55,9 @@ function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        {/* User Indicator (top right) */}
+        <UserIndicator />
+
         {/* Project Sidebar */}
         <div className="flex">
           <ProjectSidebar />
