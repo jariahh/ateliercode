@@ -20,6 +20,12 @@ import { useChatTabStore } from '../stores/chatTabStore';
 import { useProjectActivityStore } from '../stores/projectActivityStore';
 import { parseAskUserQuestion } from '../lib/parseAskUserQuestion';
 import type { ChatMessage, MessageMetadata } from '../components/workspace/ChatTab';
+import { peerConnection } from './peerConnection';
+
+// Check if we're in web mode (connected via WebRTC, not local Tauri)
+function isWebMode(): boolean {
+  return peerConnection.isConnected;
+}
 
 interface WatcherState {
   cliSessionId: string;
@@ -56,6 +62,13 @@ export async function startWatching(
   pluginName: string,
   projectPath: string
 ): Promise<void> {
+  // Skip session watching in web mode - Tauri event listeners aren't available over WebRTC
+  // The user can still view chat history, but won't get real-time updates
+  if (isWebMode()) {
+    console.log('[SessionWatcherManager] Skipping watcher in web mode (WebRTC) - real-time updates not available');
+    return;
+  }
+
   // Check if already watching this session
   if (activeWatchers.has(cliSessionId)) {
     const existing = activeWatchers.get(cliSessionId)!;

@@ -33,6 +33,7 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
 
   const { isAuthenticated } = useAuthStore();
   const loadProjects = useProjectStore((state) => state.loadProjects);
+  const clearProjects = useProjectStore((state) => state.clearProjects);
   // Use more reliable detection - if Tauri is available, we're NOT in web mode
   const tauriAvailable = isDefinitelyTauri();
   const webMode = !tauriAvailable;
@@ -47,6 +48,19 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Listen for WebRTC disconnect events
+  useEffect(() => {
+    const unsubscribe = peerConnection.onDisconnect(() => {
+      console.log('[MachineSelector] WebRTC disconnected, clearing selection and projects');
+      // Clear the selected machine
+      selectMachine(null);
+      // Clear the projects list since they're no longer accessible
+      clearProjects();
+    });
+
+    return () => unsubscribe();
+  }, [selectMachine, clearProjects]);
 
   // In Tauri mode, always show (local machine is always available)
   // In web mode, always show (to prompt sign in or show machines)

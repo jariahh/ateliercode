@@ -13,6 +13,7 @@ interface ProjectState {
   // Actions
   createProject: (input: CreateProjectInput) => Promise<Project>;
   loadProjects: () => Promise<void>;
+  clearProjects: () => void;
   setCurrentProject: (projectId: string | null) => Promise<void>;
   updateProject: (projectId: string, updates: UpdateProjectInput) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -64,6 +65,11 @@ export const useProjectStore = create<ProjectState>()(
           console.error('Failed to load projects:', error);
           set({ error: errorMessage, isLoading: false });
         }
+      },
+
+      // Clear all projects (used when disconnecting from remote machine)
+      clearProjects: () => {
+        set({ projects: [], currentProject: null, error: null });
       },
 
       // Set the current active project

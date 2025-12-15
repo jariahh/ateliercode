@@ -27,6 +27,7 @@ interface PeerMessage {
 }
 
 type PeerEventHandler = (event: string, payload: unknown) => void;
+type DisconnectHandler = () => void;
 
 class PeerConnection {
   private pc: RTCPeerConnection | null = null;
@@ -36,6 +37,7 @@ class PeerConnection {
   private iceServers: ICEServer[] = [];
   private pendingRequests = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   private eventHandlers: PeerEventHandler[] = [];
+  private disconnectHandlers: DisconnectHandler[] = [];
   private isInitiator = false;
 
   /**
@@ -240,6 +242,19 @@ class PeerConnection {
       const index = this.eventHandlers.indexOf(handler);
       if (index >= 0) {
         this.eventHandlers.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Subscribe to disconnect events
+   */
+  onDisconnect(handler: DisconnectHandler): () => void {
+    this.disconnectHandlers.push(handler);
+    return () => {
+      const index = this.disconnectHandlers.indexOf(handler);
+      if (index >= 0) {
+        this.disconnectHandlers.splice(index, 1);
       }
     };
   }
@@ -450,6 +465,8 @@ class PeerConnection {
   }
 
   private cleanup(): void {
+    const wasConnected = this.dataChannel?.readyState === 'open';
+
     if (this.dataChannel) {
       this.dataChannel.close();
       this.dataChannel = null;
@@ -461,6 +478,18 @@ class PeerConnection {
     this.connectionId = null;
     this.targetMachineId = null;
     this.pendingRequests.clear();
+
+    // Notify disconnect handlers if we were previously connected
+    if (wasConnected) {
+      console.log('[PeerConnection] Notifying disconnect handlers');
+      for (const handler of this.disconnectHandlers) {
+        try {
+          handler();
+        } catch (error) {
+          console.error('[PeerConnection] Error in disconnect handler:', error);
+        }
+      }
+    }
   }
 }
 
