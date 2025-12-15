@@ -379,18 +379,37 @@ export default function ChatTab({ projectId }: ChatTabProps) {
           const cliSessionId = activeSession.claude_session_id;
           console.log(`[ChatTab useEffect] Loading chat history from plugin: ${pluginName}, session: ${cliSessionId}`);
 
-          const history = await pluginChatApi.getChatHistory(pluginName, cliSessionId);
-          console.log('[ChatTab useEffect] Loaded', history.length, 'messages from plugin');
+          // Use pagination to load messages in chunks (WebRTC has ~64KB message limit)
+          const PAGE_SIZE = 50;
+          let allMessages: ChatMessage[] = [];
+          let offset = 0;
+          let hasMore = true;
 
-          // Convert plugin history to ChatMessage format
-          const loadedMessages: ChatMessage[] = history.map((msg) => ({
-            id: msg.id,  // Use ID from plugin directly
-            role: msg.role as 'user' | 'assistant',
-            content: msg.content,
-            timestamp: new Date(msg.timestamp * 1000),  // Convert seconds to milliseconds
-            status: 'completed' as const,
-            metadata: msg.metadata as MessageMetadata | undefined,
-          }));
+          while (hasMore) {
+            const page = await pluginChatApi.getChatHistoryPaginated(pluginName, cliSessionId, offset, PAGE_SIZE);
+
+            const pageMessages: ChatMessage[] = page.messages.map((msg) => ({
+              id: msg.id,
+              role: msg.role as 'user' | 'assistant',
+              content: msg.content,
+              timestamp: new Date(msg.timestamp * 1000),
+              status: 'completed' as const,
+              metadata: msg.metadata as MessageMetadata | undefined,
+            }));
+
+            // Paginated API returns newest first, reverse for chronological order
+            allMessages = [...pageMessages.reverse(), ...allMessages];
+
+            hasMore = page.has_more;
+            offset += PAGE_SIZE;
+
+            // Safety limit
+            if (offset > 10000) break;
+          }
+
+          // Sort by timestamp to ensure chronological order
+          const loadedMessages = allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+          console.log('[ChatTab useEffect] Loaded', loadedMessages.length, 'messages from plugin');
 
           setMessages(activeTabId, loadedMessages);
         } else {
@@ -623,22 +642,49 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       // Clear previous messages
       setMessages(activeTabId, []);
 
-      // Load messages from plugin system
+      // Load messages from plugin system using pagination to avoid WebRTC message size limits
       const pluginName = currentAgentType.toLowerCase().replace(/\s+/g, '-');
       console.log(`[ChatTab] Loading chat history for CLI session: ${cliSessionId} from plugin: ${pluginName}`);
 
-      const history = await pluginChatApi.getChatHistory(pluginName, cliSessionId);
-      console.log(`[ChatTab] Loaded ${history.length} messages from plugin`);
+      // Use pagination to load messages in chunks (WebRTC has ~64KB message limit)
+      const PAGE_SIZE = 50; // Load 50 messages at a time
+      let allMessages: ChatMessage[] = [];
+      let offset = 0;
+      let hasMore = true;
+      let totalCount = 0;
 
-      // Convert plugin history to ChatMessage format
-      const loadedMessages: ChatMessage[] = history.map((msg) => ({
-        id: msg.id,  // Use ID from plugin directly
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        timestamp: new Date(msg.timestamp * 1000),  // Convert seconds to milliseconds
-        status: 'completed' as const,
-        metadata: msg.metadata as MessageMetadata | undefined,
-      }));
+      while (hasMore) {
+        console.log(`[ChatTab] Loading page at offset ${offset}`);
+        const page = await pluginChatApi.getChatHistoryPaginated(pluginName, cliSessionId, offset, PAGE_SIZE);
+        totalCount = page.total_count;
+
+        // Convert plugin history to ChatMessage format
+        const pageMessages: ChatMessage[] = page.messages.map((msg) => ({
+          id: msg.id,
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          timestamp: new Date(msg.timestamp * 1000),
+          status: 'completed' as const,
+          metadata: msg.metadata as MessageMetadata | undefined,
+        }));
+
+        // Paginated API returns newest first, so we prepend to maintain chronological order
+        allMessages = [...pageMessages.reverse(), ...allMessages];
+
+        hasMore = page.has_more;
+        offset += PAGE_SIZE;
+
+        // Safety check to prevent infinite loops
+        if (offset > 10000) {
+          console.warn('[ChatTab] Safety limit reached, stopping pagination');
+          break;
+        }
+      }
+
+      console.log(`[ChatTab] Loaded ${allMessages.length} messages total (${totalCount} in session)`);
+
+      // Sort by timestamp to ensure chronological order
+      const loadedMessages = allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
       // Set messages
       setMessages(activeTabId, loadedMessages);
