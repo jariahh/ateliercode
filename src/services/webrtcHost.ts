@@ -307,5 +307,7 @@ export async function handleWebRTCCommand(message: PeerMessage): Promise<PeerMes
  * Check if the WebRTC host is available (running in Tauri)
  */
 export function isWebRTCHostAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
+  // Tauri v2 uses __TAURI_INTERNALS__, v1 uses __TAURI__
+  return typeof window !== 'undefined' &&
+    ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 }
