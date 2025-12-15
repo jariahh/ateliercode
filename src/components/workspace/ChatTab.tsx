@@ -380,13 +380,17 @@ export default function ChatTab({ projectId }: ChatTabProps) {
           console.log(`[ChatTab useEffect] Loading chat history from plugin: ${pluginName}, session: ${cliSessionId}`);
 
           // Use pagination to load messages in chunks (WebRTC has ~64KB message limit)
-          const PAGE_SIZE = 50;
+          // Use smaller page size to avoid WebRTC data channel limits with large messages
+          const PAGE_SIZE = 20;
+          const MAX_MESSAGES = 500; // Only load most recent 500 messages initially
           let allMessages: ChatMessage[] = [];
           let offset = 0;
           let hasMore = true;
+          let totalCount = 0;
 
-          while (hasMore) {
+          while (hasMore && allMessages.length < MAX_MESSAGES) {
             const page = await pluginChatApi.getChatHistoryPaginated(pluginName, cliSessionId, offset, PAGE_SIZE);
+            totalCount = page.total_count;
 
             const pageMessages: ChatMessage[] = page.messages.map((msg) => ({
               id: msg.id,
@@ -409,7 +413,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
           // Sort by timestamp to ensure chronological order
           const loadedMessages = allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-          console.log('[ChatTab useEffect] Loaded', loadedMessages.length, 'messages from plugin');
+          if (totalCount > MAX_MESSAGES) {
+            console.log(`[ChatTab useEffect] Loaded ${loadedMessages.length} of ${totalCount} messages (limited to most recent ${MAX_MESSAGES})`);
+          } else {
+            console.log('[ChatTab useEffect] Loaded', loadedMessages.length, 'messages from plugin');
+          }
 
           setMessages(activeTabId, loadedMessages);
         } else {
@@ -647,13 +655,15 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       console.log(`[ChatTab] Loading chat history for CLI session: ${cliSessionId} from plugin: ${pluginName}`);
 
       // Use pagination to load messages in chunks (WebRTC has ~64KB message limit)
-      const PAGE_SIZE = 50; // Load 50 messages at a time
+      // Use smaller page size to avoid WebRTC data channel limits with large messages
+      const PAGE_SIZE = 20;
+      const MAX_MESSAGES = 500; // Only load most recent 500 messages initially
       let allMessages: ChatMessage[] = [];
       let offset = 0;
       let hasMore = true;
       let totalCount = 0;
 
-      while (hasMore) {
+      while (hasMore && allMessages.length < MAX_MESSAGES) {
         console.log(`[ChatTab] Loading page at offset ${offset}`);
         const page = await pluginChatApi.getChatHistoryPaginated(pluginName, cliSessionId, offset, PAGE_SIZE);
         totalCount = page.total_count;
@@ -681,7 +691,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         }
       }
 
-      console.log(`[ChatTab] Loaded ${allMessages.length} messages total (${totalCount} in session)`);
+      if (totalCount > MAX_MESSAGES) {
+        console.log(`[ChatTab] Loaded ${allMessages.length} of ${totalCount} messages (limited to most recent ${MAX_MESSAGES})`);
+      } else {
+        console.log(`[ChatTab] Loaded ${allMessages.length} messages total`);
+      }
 
       // Sort by timestamp to ensure chronological order
       const loadedMessages = allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
