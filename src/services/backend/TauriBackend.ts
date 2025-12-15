@@ -332,9 +332,15 @@ export class TauriBackend implements IBackend {
 
 /**
  * Check if Tauri API is available (running in desktop app)
+ * Supports both Tauri v1 (__TAURI__) and Tauri v2 (__TAURI_INTERNALS__)
  */
 export function isTauriAvailable(): boolean {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
+  if (typeof window === 'undefined') return false;
+  // Tauri v2 uses __TAURI_INTERNALS__
+  if ('__TAURI_INTERNALS__' in window) return true;
+  // Tauri v1 uses __TAURI__
+  if ('__TAURI__' in window) return true;
+  return false;
 }
 
 /**

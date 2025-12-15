@@ -6,6 +6,17 @@ import { useProjectStore } from '../stores/projectStore';
 import { serverConnection } from '../services/serverConnection';
 import { peerConnection } from '../services/peerConnection';
 import { switchToWebRTCBackend, switchToTauriBackend, isTauriAvailable } from '../services/backend';
+
+// More reliable Tauri detection - check multiple indicators for Tauri v1 and v2
+function isDefinitelyTauri(): boolean {
+  if (typeof window === 'undefined') return false;
+  // Tauri v2 uses __TAURI_INTERNALS__
+  if ('__TAURI_INTERNALS__' in window) return true;
+  // Tauri v1 uses __TAURI__
+  if ('__TAURI__' in window) return true;
+  // Check using backend detection
+  return isTauriAvailable();
+}
 import { isWeb } from '../lib/platform';
 
 interface MachineSelectorProps {
@@ -24,8 +35,9 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
 
   const { isAuthenticated } = useAuthStore();
   const loadProjects = useProjectStore((state) => state.loadProjects);
-  const webMode = isWeb();
-  console.log('[MachineSelector] webMode:', webMode, '__TAURI__' in window, typeof window !== 'undefined' ? (window as unknown as { __TAURI__?: unknown }).__TAURI__ : 'no window');
+  // Use more reliable detection - if Tauri is available, we're NOT in web mode
+  const tauriAvailable = isDefinitelyTauri();
+  const webMode = !tauriAvailable;
 
   // Close dropdown when clicking outside
   useEffect(() => {

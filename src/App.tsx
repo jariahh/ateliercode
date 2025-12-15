@@ -11,7 +11,9 @@ import AuthDialog from './components/AuthDialog';
 import { initServerConnection } from './services/serverConnection';
 import { useAuthStore } from './stores/authStore';
 import { useMachineStore, CLOUD_MACHINE_ID } from './stores/machineStore';
+import { useProjectStore } from './stores/projectStore';
 import { isWeb } from './lib/platform';
+import { initializeBackend } from './services/backend';
 
 function App() {
   const currentYear = new Date().getFullYear();
