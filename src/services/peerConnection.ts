@@ -247,6 +247,28 @@ class PeerConnection {
   }
 
   /**
+   * Send an event to the connected peer (used by host to forward events)
+   */
+  sendEvent(eventName: string, payload: unknown): void {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.warn('[PeerConnection] Cannot send event - not connected');
+      return;
+    }
+
+    const message: PeerMessage = {
+      type: 'event',
+      event: eventName,
+      payload,
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+    } catch (error) {
+      console.error('[PeerConnection] Failed to send event:', error);
+    }
+  }
+
+  /**
    * Subscribe to disconnect events
    */
   onDisconnect(handler: DisconnectHandler): () => void {

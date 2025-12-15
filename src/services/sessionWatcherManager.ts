@@ -27,6 +27,27 @@ function isWebMode(): boolean {
   return peerConnection.isConnected;
 }
 
+// Track whether we've set up the WebRTC event listener
+let webRTCEventListenerSetup = false;
+
+/**
+ * Set up listener for session events forwarded over WebRTC
+ */
+function setupWebRTCEventListener(): void {
+  if (webRTCEventListenerSetup) return;
+
+  peerConnection.onEvent((event, payload) => {
+    if (event === 'session-update') {
+      const data = payload as { cli_session_id: string; update: SessionUpdate };
+      console.log('[SessionWatcherManager] Received WebRTC session update for:', data.cli_session_id);
+      handleSessionUpdate(data.cli_session_id, data.update);
+    }
+  });
+
+  webRTCEventListenerSetup = true;
+  console.log('[SessionWatcherManager] WebRTC event listener set up');
+}
+
 interface WatcherState {
   cliSessionId: string;
   tabId: string;
@@ -62,13 +83,6 @@ export async function startWatching(
   pluginName: string,
   projectPath: string
 ): Promise<void> {
-  // Skip session watching in web mode - Tauri event listeners aren't available over WebRTC
-  // The user can still view chat history, but won't get real-time updates
-  if (isWebMode()) {
-    console.log('[SessionWatcherManager] Skipping watcher in web mode (WebRTC) - real-time updates not available');
-    return;
-  }
-
   // Check if already watching this session
   if (activeWatchers.has(cliSessionId)) {
     const existing = activeWatchers.get(cliSessionId)!;
@@ -92,7 +106,7 @@ export async function startWatching(
     return;
   }
 
-  console.log('[SessionWatcherManager] Starting watcher for session:', cliSessionId, 'tab:', tabId);
+  console.log('[SessionWatcherManager] Starting watcher for session:', cliSessionId, 'tab:', tabId, 'webMode:', isWebMode());
 
   // Create entry with isStarting flag
   const watcherState: WatcherState = {
@@ -106,12 +120,39 @@ export async function startWatching(
   activeWatchers.set(cliSessionId, watcherState);
 
   try {
-    const unsubscribe = await sessionWatcher.startWatchingSession(
-      pluginName,
-      projectPath,
-      cliSessionId,
-      (update) => handleSessionUpdate(cliSessionId, update)
-    );
+    let unsubscribe: (() => Promise<void>) | null = null;
+
+    if (isWebMode()) {
+      // In web mode, use WebRTC to start watching on the remote machine
+      // Set up the event listener first to receive forwarded events
+      setupWebRTCEventListener();
+
+      // Start watching via WebRTC command
+      const watchId = await peerConnection.sendCommand<string>('start_watching_session', {
+        pluginName,
+        projectPath,
+        cliSessionId,
+      });
+
+      console.log('[SessionWatcherManager] WebRTC watcher started, watchId:', watchId);
+
+      // Create unsubscribe function that stops the remote watcher
+      unsubscribe = async () => {
+        await peerConnection.sendCommand('stop_watching_session', {
+          pluginName,
+          watchId,
+          cliSessionId,
+        });
+      };
+    } else {
+      // In local Tauri mode, use direct API
+      unsubscribe = await sessionWatcher.startWatchingSession(
+        pluginName,
+        projectPath,
+        cliSessionId,
+        (update) => handleSessionUpdate(cliSessionId, update)
+      );
+    }
 
     // Update state with unsubscribe function
     const state = activeWatchers.get(cliSessionId);

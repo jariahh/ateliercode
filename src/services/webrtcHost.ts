@@ -5,7 +5,9 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Project, CreateProjectInput, UpdateProjectInput, ProjectAnalysisResult, AgentInfo, Task, CreateTaskInput, UpdateTaskInput } from '../types/tauri';
+import { peerConnection } from './peerConnection';
 
 interface PeerMessage {
   type: 'request' | 'response' | 'event';
@@ -18,6 +20,12 @@ interface PeerMessage {
 }
 
 type CommandHandler = (params: Record<string, unknown>) => Promise<unknown>;
+
+// Track active session watchers and their event listeners for cleanup
+const activeSessionWatchers = new Map<string, {
+  cliSessionId: string;
+  unlisten: UnlistenFn;
+}>();
 
 /**
  * Command handlers that map WebRTC commands to Tauri invocations
@@ -179,18 +187,54 @@ const commandHandlers: Record<string, CommandHandler> = {
   },
 
   start_watching_session: async (params) => {
-    return await invoke<string>('start_watching_session', {
-      pluginName: params.pluginName as string,
-      projectPath: params.projectPath as string,
-      cliSessionId: params.cliSessionId as string,
+    const pluginName = params.pluginName as string;
+    const projectPath = params.projectPath as string;
+    const cliSessionId = params.cliSessionId as string;
+
+    // Set up event listener FIRST to forward session events to the web client
+    const unlisten = await listen<{ cli_session_id: string; update: unknown }>(
+      'session-update',
+      (event) => {
+        // Filter events by cli_session_id and forward to web client
+        if (event.payload.cli_session_id === cliSessionId) {
+          console.log('[WebRTCHost] Forwarding session update for:', cliSessionId);
+          peerConnection.sendEvent('session-update', event.payload);
+        }
+      }
+    );
+
+    // Start the watcher on the backend
+    const watchId = await invoke<string>('start_watching_session', {
+      pluginName,
+      projectPath,
+      cliSessionId,
     });
+
+    // Store the unlisten function for cleanup
+    activeSessionWatchers.set(watchId, { cliSessionId, unlisten });
+    console.log('[WebRTCHost] Started session watcher:', watchId, 'for session:', cliSessionId);
+
+    return watchId;
   },
 
   stop_watching_session: async (params) => {
+    const pluginName = params.pluginName as string;
+    const watchId = params.watchId as string;
+    const cliSessionId = params.cliSessionId as string;
+
+    // Clean up the event listener
+    const watcherState = activeSessionWatchers.get(watchId);
+    if (watcherState) {
+      watcherState.unlisten();
+      activeSessionWatchers.delete(watchId);
+      console.log('[WebRTCHost] Stopped session watcher:', watchId);
+    }
+
+    // Stop the watcher on the backend
     return await invoke<void>('stop_watching_session', {
-      pluginName: params.pluginName as string,
-      watchId: params.watchId as string,
-      cliSessionId: params.cliSessionId as string,
+      pluginName,
+      watchId,
+      cliSessionId,
     });
   },
 
