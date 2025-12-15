@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import type { MachineInfo } from '../services/serverConnection';
 import { isWeb } from '../lib/platform';
 
+// Re-export MachineInfo for other components
+export type { MachineInfo };
+
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'authenticated';
 
 interface MachineState {

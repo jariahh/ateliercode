@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Mic, Key, Download, Check, Loader2, AlertCircle, ChevronRight, Globe, Monitor, Wifi, WifiOff, LogIn, UserPlus } from 'lucide-react';
+import { Settings as SettingsIcon, Mic, Key, Download, Check, Loader2, AlertCircle, ChevronRight, Globe, Monitor, Wifi, WifiOff, LogIn, UserPlus, Trash2, Pencil, X } from 'lucide-react';
 import { useSettingsStore, type WhisperModel } from '../stores/settingsStore';
-import { useMachineStore } from '../stores/machineStore';
+import { useMachineStore, type MachineInfo } from '../stores/machineStore';
 import { serverConnection } from '../services/serverConnection';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -44,6 +44,13 @@ export default function Settings() {
   const [authEmail, setAuthEmail] = useState('');
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+
+  // Machine management state
+  const [editingMachine, setEditingMachine] = useState<MachineInfo | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [deletingMachine, setDeletingMachine] = useState<MachineInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // Auto-populate machine name from system hostname
   useEffect(() => {
@@ -188,6 +195,57 @@ export default function Settings() {
     useMachineStore.getState().setMachines([]);
     // Clear the token so auto-reconnect doesn't happen
     useSettingsStore.getState().setServerToken('');
+  };
+
+  // Delete a machine
+  const handleDeleteMachine = async (machine: MachineInfo) => {
+    setIsDeleting(true);
+    try {
+      const success = await serverConnection.deleteMachine(machine.id);
+      if (success) {
+        // Refresh machine list
+        const machineList = await serverConnection.listMachines();
+        useMachineStore.getState().setMachines(machineList);
+        setDeletingMachine(null);
+      } else {
+        setServerError('Failed to delete machine');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      setServerError('Failed to delete machine');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Rename a machine
+  const handleRenameMachine = async () => {
+    if (!editingMachine || !editingName.trim()) return;
+
+    setIsRenaming(true);
+    try {
+      const success = await serverConnection.renameMachine(editingMachine.id, editingName.trim());
+      if (success) {
+        // Refresh machine list
+        const machineList = await serverConnection.listMachines();
+        useMachineStore.getState().setMachines(machineList);
+        setEditingMachine(null);
+        setEditingName('');
+      } else {
+        setServerError('Failed to rename machine');
+      }
+    } catch (err) {
+      console.error('Rename error:', err);
+      setServerError('Failed to rename machine');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  // Start editing a machine
+  const startEditingMachine = (machine: MachineInfo) => {
+    setEditingMachine(machine);
+    setEditingName(machine.name);
   };
 
   // Model size descriptions
@@ -343,10 +401,79 @@ export default function Settings() {
                         {machines.length > 0 && (
                           <div className="mb-3">
                             <p className="text-sm text-base-content/70 mb-2">Your Machines:</p>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="space-y-2">
                               {machines.map((machine) => (
-                                <div key={machine.id} className={`badge ${machine.isOnline ? 'badge-success' : 'badge-ghost'} gap-1`}>
-                                  <Monitor className="w-3 h-3" />{machine.name}
+                                <div key={machine.id} className="flex items-center gap-2 bg-base-100 rounded-lg p-2">
+                                  <div className={`badge ${machine.isOnline ? 'badge-success' : 'badge-ghost'} gap-1`}>
+                                    <Monitor className="w-3 h-3" />
+                                    {editingMachine?.id === machine.id ? (
+                                      <input
+                                        type="text"
+                                        value={editingName}
+                                        onChange={(e) => setEditingName(e.target.value)}
+                                        className="input input-xs input-bordered w-32 bg-transparent"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') handleRenameMachine();
+                                          if (e.key === 'Escape') { setEditingMachine(null); setEditingName(''); }
+                                        }}
+                                      />
+                                    ) : (
+                                      machine.name
+                                    )}
+                                  </div>
+                                  <div className="flex-1" />
+                                  {editingMachine?.id === machine.id ? (
+                                    <>
+                                      <button
+                                        onClick={handleRenameMachine}
+                                        disabled={isRenaming || !editingName.trim()}
+                                        className="btn btn-xs btn-success"
+                                      >
+                                        {isRenaming ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                      </button>
+                                      <button
+                                        onClick={() => { setEditingMachine(null); setEditingName(''); }}
+                                        className="btn btn-xs btn-ghost"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </>
+                                  ) : deletingMachine?.id === machine.id ? (
+                                    <>
+                                      <span className="text-xs text-error">Delete?</span>
+                                      <button
+                                        onClick={() => handleDeleteMachine(machine)}
+                                        disabled={isDeleting}
+                                        className="btn btn-xs btn-error"
+                                      >
+                                        {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes'}
+                                      </button>
+                                      <button
+                                        onClick={() => setDeletingMachine(null)}
+                                        className="btn btn-xs btn-ghost"
+                                      >
+                                        No
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={() => startEditingMachine(machine)}
+                                        className="btn btn-xs btn-ghost"
+                                        title="Rename machine"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={() => setDeletingMachine(machine)}
+                                        className="btn btn-xs btn-ghost text-error"
+                                        title="Delete machine"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               ))}
                             </div>

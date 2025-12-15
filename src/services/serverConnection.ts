@@ -19,6 +19,10 @@ type WSMessageType =
   | 'heartbeat_ack'
   | 'list_machines'
   | 'machines_list'
+  | 'delete_machine'
+  | 'delete_machine_response'
+  | 'rename_machine'
+  | 'rename_machine_response'
   | 'connect_to_machine'
   | 'connection_request'
   | 'connection_accepted'
@@ -276,6 +280,30 @@ class ServerConnection {
 
     const response = await this.sendRequest<Record<string, never>, { machines: MachineInfo[] }>('list_machines', {});
     return response.machines || [];
+  }
+
+  /**
+   * Delete a machine
+   */
+  async deleteMachine(machineId: string): Promise<boolean> {
+    if (!this.isAuthenticated) {
+      return false;
+    }
+
+    const response = await this.sendRequest<{ machineId: string }, { success: boolean }>('delete_machine', { machineId });
+    return response.success;
+  }
+
+  /**
+   * Rename a machine
+   */
+  async renameMachine(machineId: string, newName: string): Promise<boolean> {
+    if (!this.isAuthenticated) {
+      return false;
+    }
+
+    const response = await this.sendRequest<{ machineId: string; newName: string }, { success: boolean }>('rename_machine', { machineId, newName });
+    return response.success;
   }
 
   /**
