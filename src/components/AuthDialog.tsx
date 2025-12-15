@@ -116,7 +116,15 @@ export default function AuthDialog() {
 
         <div className="divider text-xs text-base-content/40">OR</div>
 
-        <p className="text-center text-sm text-base-content/60">
+        <button
+          type="button"
+          onClick={handleClose}
+          className="btn btn-ghost btn-sm w-full"
+        >
+          Continue without signing in
+        </button>
+
+        <p className="text-center text-sm text-base-content/60 mt-4">
           Don't have an account?{' '}
           <a
             href="https://ateliercode.dev/signup"

@@ -61,8 +61,20 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.message || 'Login failed');
+            // Try to parse error message, handle non-JSON responses
+            let errorMessage = 'Login failed';
+            try {
+              const data = await response.json();
+              errorMessage = data.message || data.error || errorMessage;
+            } catch {
+              // Response wasn't JSON (e.g., "Not found")
+              if (response.status === 404) {
+                errorMessage = 'Auth service not available. Please try again later.';
+              } else {
+                errorMessage = `Server error: ${response.status}`;
+              }
+            }
+            throw new Error(errorMessage);
           }
 
           const data = await response.json();
