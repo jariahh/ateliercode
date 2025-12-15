@@ -145,5 +145,51 @@ AtelierCode has TWO systems for agent integration:
 
 ---
 
-**Last Updated:** 2025-12-08
+## 🌐 Related Projects
+
+AtelierCode is a multi-project ecosystem. Here are all the related projects:
+
+### Main Application
+- **Location**: `C:\projects\ateliercode` (this project)
+- **Description**: Tauri desktop app + web build for AI coding workspace
+- **Stack**: React + TypeScript + Tauri (Rust backend)
+- **Deploys to**:
+  - Desktop: Windows/Mac/Linux via Tauri
+  - Web: https://app.ateliercode.dev (Docker + ArgoCD)
+
+### Server (Auth + Signaling)
+- **Location**: `C:\projects\ateliercode-server`
+- **Description**: WebSocket server for auth, machine registration, and WebRTC signaling
+- **Stack**: Node.js + TypeScript + PostgreSQL
+- **Deploys to**: https://api.ateliercode.dev (Docker + ArgoCD)
+- **Key Features**:
+  - User authentication (JWT)
+  - Machine registration and status tracking
+  - WebRTC signaling for peer-to-peer connections
+  - STUN/TURN ICE server configuration
+
+### Website
+- **Location**: `C:\projects\ateliercode-website`
+- **Description**: Marketing/landing page for AtelierCode
+- **Deploys to**: https://ateliercode.dev
+
+### Plugins
+- **Claude Code Plugin**: `C:\projects\ateliercode-plugin-claude`
+  - Rust dynamic library (.dll)
+  - Wraps Claude Code CLI for integration
+  - Reads sessions from `~/.claude/sessions/`
+
+- **Gemini Plugin**: `C:\projects\ateliercode-plugin-gemini`
+  - Rust dynamic library (.dll)
+  - Wraps Gemini CLI for integration
+  - Reads sessions from `~/.gemini/tmp/{project_hash}/chats/`
+
+### Infrastructure Notes
+- All deployments use Kubernetes via ArgoCD
+- Each project has its own `helm/` directory with charts
+- Docker images pushed to GitHub Container Registry (ghcr.io)
+
+---
+
+**Last Updated:** 2025-12-15
 **Purpose:** Prevent accidental termination of Claude sessions and maintain project context
