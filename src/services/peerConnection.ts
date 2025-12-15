@@ -162,9 +162,16 @@ class PeerConnection {
    * Accept an incoming connection (as responder)
    */
   async acceptConnection(connectionId: string, fromMachineId: string): Promise<void> {
+    if (this.pc) {
+      console.warn('[PeerConnection] Already have a connection, cleaning up first');
+      this.cleanup();
+    }
+
     this.connectionId = connectionId;
     this.targetMachineId = fromMachineId;
     this.isInitiator = false;
+
+    console.log('[PeerConnection] Accepting connection as responder, connectionId:', connectionId);
 
     // Fetch ICE servers
     const iceServers = await this.fetchIceServers();
@@ -182,9 +189,15 @@ class PeerConnection {
 
     // Listen for data channel (responder receives it)
     this.pc.ondatachannel = (event) => {
+      console.log('[PeerConnection] Data channel received from initiator');
       this.dataChannel = event.channel;
       this.setupDataChannelHandlers();
     };
+
+    // Subscribe to signaling messages to receive RTC offer and ICE candidates
+    serverConnection.onMessage((message) => {
+      this.handleSignalingMessage(message);
+    });
   }
 
   /**

@@ -344,7 +344,7 @@ class ServerConnection {
     console.log(`[ServerConnection] Machine ${name} is now ${isOnline ? 'online' : 'offline'}`);
   }
 
-  private handleConnectionRequest(message: WSMessage): void {
+  private async handleConnectionRequest(message: WSMessage): Promise<void> {
     const { fromMachineId, fromMachineName, connectionId } = message.payload as {
       fromMachineId: string;
       fromMachineName: string;
@@ -354,10 +354,20 @@ class ServerConnection {
     // For now, auto-accept connections from user's own machines
     // In the future, could show a confirmation dialog
     console.log(`[ServerConnection] Connection request from ${fromMachineName} (${fromMachineId})`);
+
+    // Import peerConnection dynamically to avoid circular dependency
+    const { peerConnection } = await import('./peerConnection');
+
+    // Initialize peer connection as responder BEFORE accepting
+    await peerConnection.acceptConnection(connectionId, fromMachineId);
+
+    // Send acceptance after peer connection is ready
     this.send({
       type: 'connection_accepted',
       payload: { connectionId },
     });
+
+    console.log(`[ServerConnection] Connection accepted for ${connectionId}`);
   }
 
   private async sendRequest<TPayload, TResponse>(type: WSMessageType, payload: TPayload): Promise<TResponse> {
