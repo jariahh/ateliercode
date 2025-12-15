@@ -57,11 +57,13 @@ export const useProjectStore = create<ProjectState>()(
 
         try {
           const backend = getBackend();
+          console.log('[ProjectStore] Loading projects with backend:', backend.type);
           const projects = await backend.projects.list();
+          console.log('[ProjectStore] Loaded projects:', projects.length, projects);
           set({ projects, isLoading: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to load projects';
-          console.error('Failed to load projects:', error);
+          console.error('[ProjectStore] Failed to load projects:', error);
           set({ error: errorMessage, isLoading: false });
         }
       },

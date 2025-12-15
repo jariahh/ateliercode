@@ -235,7 +235,12 @@ function MachineList({
   isAuthenticated = false,
 }: MachineListProps) {
   const isLocalSelected = !selectedMachineId || selectedMachineId === localMachineId;
-  const remoteMachines = machines.filter((m) => m.id !== localMachineId);
+  // Filter out local machine from remote list - but only if localMachineId is set
+  const remoteMachines = localMachineId
+    ? machines.filter((m) => m.id !== localMachineId)
+    : machines;
+
+  console.log('[MachineList] localMachineId:', localMachineId, 'selectedMachineId:', selectedMachineId, 'machines:', machines.length, 'remoteMachines:', remoteMachines.length);
 
   // In web mode and not authenticated, show sign in prompt
   if (webMode && !isAuthenticated) {
