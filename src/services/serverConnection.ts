@@ -282,10 +282,14 @@ class ServerConnection {
    * Request connection to a remote machine
    */
   async connectToMachine(targetMachineId: string): Promise<boolean> {
-    if (!this.isAuthenticated || !this.machineId) {
+    if (!this.isAuthenticated) {
+      console.warn('[ServerConnection] Must be authenticated to connect to machine');
       return false;
     }
 
+    // Note: machineId may be null for web clients that haven't registered as a machine
+    // They can still initiate connections to desktop machines
+    console.log('[ServerConnection] Requesting connection to machine:', targetMachineId);
     this.send({ type: 'connect_to_machine', payload: { targetMachineId } });
     // Connection flow continues via message handlers
     return true;

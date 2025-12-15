@@ -356,12 +356,15 @@ class PeerConnection {
     switch (message.type) {
       case 'connection_accepted': {
         const { connectionId } = message.payload as { connectionId: string };
+        console.log('[PeerConnection] Connection accepted, connectionId:', connectionId);
         this.connectionId = connectionId;
 
         // Create and send offer
         if (this.pc && this.isInitiator) {
+          console.log('[PeerConnection] Creating RTC offer...');
           const offer = await this.pc.createOffer();
           await this.pc.setLocalDescription(offer);
+          console.log('[PeerConnection] Sending RTC offer to:', this.targetMachineId);
 
           serverConnection.send({
             type: 'rtc_offer',
@@ -377,10 +380,13 @@ class PeerConnection {
 
       case 'rtc_offer': {
         const { connectionId, sdp } = message.payload as { connectionId: string; targetMachineId: string; sdp: string };
+        console.log('[PeerConnection] Received RTC offer');
         if (this.pc && !this.isInitiator) {
           await this.pc.setRemoteDescription({ type: 'offer', sdp });
+          console.log('[PeerConnection] Creating RTC answer...');
           const answer = await this.pc.createAnswer();
           await this.pc.setLocalDescription(answer);
+          console.log('[PeerConnection] Sending RTC answer');
 
           serverConnection.send({
             type: 'rtc_answer',
@@ -396,8 +402,10 @@ class PeerConnection {
 
       case 'rtc_answer': {
         const { sdp } = message.payload as { sdp: string };
+        console.log('[PeerConnection] Received RTC answer');
         if (this.pc && this.isInitiator) {
           await this.pc.setRemoteDescription({ type: 'answer', sdp });
+          console.log('[PeerConnection] Remote description set, waiting for ICE...');
         }
         break;
       }
