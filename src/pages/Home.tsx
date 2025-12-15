@@ -18,9 +18,9 @@ export default function Home() {
   const displayProjects = showAll ? projects : activeProjects;
   const recentProjects = [...displayProjects]
     .sort((a, b) => {
-      const aTime = a.lastOpenedAt || a.createdAt;
-      const bTime = b.lastOpenedAt || b.createdAt;
-      return new Date(bTime).getTime() - new Date(aTime).getTime();
+      const aTime = a.last_activity || a.created_at;
+      const bTime = b.last_activity || b.created_at;
+      return bTime - aTime; // Already timestamps in ms
     })
     .slice(0, 6);
 
@@ -121,30 +121,25 @@ export default function Home() {
                         )}
                       </div>
 
-                      {project.description && (
+                      {project.prd_content && (
                         <p className="text-sm text-base-content/70 line-clamp-2">
-                          {project.description}
+                          {project.prd_content}
                         </p>
                       )}
 
                       <div className="flex flex-wrap gap-2 mt-2">
                         <div className={`badge badge-sm ${project.status === 'active' ? 'badge-primary' : 'badge-ghost'}`}>
-                          {project.agent.type}
+                          {project.agent_type}
                         </div>
                         <div className={`badge badge-sm ${project.status === 'active' ? 'badge-success' : 'badge-warning'}`}>
                           {project.status}
                         </div>
-                        {project.tags?.map((tag) => (
-                          <div key={tag} className="badge badge-outline badge-sm">
-                            {tag}
-                          </div>
-                        ))}
                       </div>
 
                       <div className="text-xs text-base-content/60 mt-2">
-                        {project.lastOpenedAt
-                          ? `Opened ${new Date(project.lastOpenedAt).toLocaleDateString()}`
-                          : `Created ${new Date(project.createdAt).toLocaleDateString()}`}
+                        {project.last_activity && project.last_activity !== project.created_at
+                          ? `Opened ${new Date(project.last_activity).toLocaleDateString()}`
+                          : `Created ${new Date(project.created_at).toLocaleDateString()}`}
                       </div>
                     </div>
                   </div>
@@ -179,25 +174,25 @@ export default function Home() {
                         >
                           <td>
                             <div className="font-bold">{project.name}</div>
-                            {project.description && (
+                            {project.prd_content && (
                               <div className="text-sm text-base-content/60 line-clamp-1">
-                                {project.description}
+                                {project.prd_content}
                               </div>
                             )}
                           </td>
                           <td>
                             <div className="badge badge-primary badge-sm">
-                              {project.agent.type}
+                              {project.agent_type}
                             </div>
                           </td>
                           <td>
-                            <code className="text-xs">{project.path}</code>
+                            <code className="text-xs">{project.root_path}</code>
                           </td>
                           <td>
                             <div className="text-sm">
-                              {project.lastOpenedAt
-                                ? new Date(project.lastOpenedAt).toLocaleDateString()
-                                : new Date(project.createdAt).toLocaleDateString()}
+                              {project.last_activity && project.last_activity !== project.created_at
+                                ? new Date(project.last_activity).toLocaleDateString()
+                                : new Date(project.created_at).toLocaleDateString()}
                             </div>
                           </td>
                           <td>

@@ -242,7 +242,7 @@ export default function ProjectSidebar() {
                             ? projectColor ? `${projectColor.text}/70` : 'text-primary-content/70'
                             : 'text-base-content/60'
                         }`}>
-                          {project.path}
+                          {project.root_path}
                         </div>
                       </div>
                     )}

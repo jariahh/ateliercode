@@ -226,7 +226,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const project = projects.find((p) => p.id === projectId);
 
   // Use the active tab's agent type, falling back to project default
-  const currentAgentType = activeTab?.agent_type || project?.agent?.type;
+  const currentAgentType = activeTab?.agent_type || project?.agent_type;
 
   // Track if we've already created a default tab for this project
   const defaultTabCreatedRef = useRef<string | null>(null);
@@ -262,13 +262,13 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         // If no tabs exist, create a default tab with the project's agent
         // Only do this once per project
         const currentTabs = useChatTabStore.getState().tabsByProject.get(projectId) || [];
-        if (currentTabs.length === 0 && project?.agent?.type && defaultTabCreatedRef.current !== projectId) {
+        if (currentTabs.length === 0 && project?.agent_type && defaultTabCreatedRef.current !== projectId) {
           defaultTabCreatedRef.current = projectId;
-          createTab(projectId, project.agent.type);
+          createTab(projectId, project.agent_type);
         }
       });
     }
-  }, [projectId, loadTabs, createTab, project?.agent?.type]);
+  }, [projectId, loadTabs, createTab, project?.agent_type]);
 
   // Tab handlers
   const handleTabClick = useCallback(async (tabId: string) => {
@@ -309,21 +309,21 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
   const handleAddTab = useCallback(async () => {
     // Add a new tab with the project's default agent directly
-    console.log('[ChatTab] handleAddTab called, projectId:', projectId, 'agent.type:', project?.agent?.type);
-    if (!projectId || !project?.agent?.type) {
+    console.log('[ChatTab] handleAddTab called, projectId:', projectId, 'agent_type:', project?.agent_type);
+    if (!projectId || !project?.agent_type) {
       console.error('[ChatTab] Cannot add tab - missing projectId or agent type');
       return;
     }
     try {
       console.log('[ChatTab] Creating new tab...');
-      const newTab = await createTab(projectId, project.agent.type);
+      const newTab = await createTab(projectId, project.agent_type);
       console.log('[ChatTab] New tab created:', newTab);
       await setActiveTabInStore(projectId, newTab.id);
       console.log('[ChatTab] Tab set as active');
     } catch (error) {
       console.error('[ChatTab] Failed to create new tab:', error);
     }
-  }, [projectId, project?.agent?.type, createTab, setActiveTabInStore]);
+  }, [projectId, project?.agent_type, createTab, setActiveTabInStore]);
 
   const handleAgentSelect = useCallback(async (agentType: string) => {
     console.log('[ChatTab] handleAgentSelect called with agentType:', agentType, 'projectId:', projectId);
@@ -540,7 +540,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
                 activeTabId,
                 projectId,
                 normalizedAgentType,
-                project?.path || ''
+                project?.root_path || ''
               );
               break;
             }
@@ -667,7 +667,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         activeTabId,
         projectId,
         pluginName,
-        project?.path || ''
+        project?.root_path || ''
       );
 
       console.log('[ChatTab] Resumed CLI session, total messages:', loadedMessages.length);
@@ -826,14 +826,14 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
         // Make sure we're watching the correct CLI session for updates
         const cliSessionToWatch = newAgentSession.claude_session_id || activeSession.claude_session_id;
-        if (cliSessionToWatch && project?.path) {
+        if (cliSessionToWatch && project?.root_path) {
           console.log('[ChatTab handleSend] Starting/updating watcher for CLI session:', cliSessionToWatch);
           sessionWatcherManager.startWatching(
             cliSessionToWatch,
             activeTabId,
             projectId,
             normalizedAgentType,
-            project.path
+            project.root_path
           );
         }
 
@@ -1095,7 +1095,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
           <button
             onClick={() => {
               console.log('[ChatTab] History button clicked, current state:', showSessionHistory);
-              console.log('[ChatTab] Project data:', { projectId, path: project?.path, agent_type: currentAgentType });
+              console.log('[ChatTab] Project data:', { projectId, root_path: project?.root_path, agent_type: currentAgentType });
               setShowSessionHistory(!showSessionHistory);
             }}
             className="btn btn-ghost btn-xs gap-1"
@@ -1357,10 +1357,10 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     </PanelGroup>
 
       {/* Session History Modal - placed at root level for proper z-index */}
-      {projectId && project?.path && currentAgentType && (
+      {projectId && project?.root_path && currentAgentType && (
         <SessionHistoryModal
           projectId={projectId}
-          projectPath={project.path}
+          projectPath={project.root_path}
           pluginName={currentAgentType.toLowerCase().replace(/\s+/g, '-')}
           onResume={handleResumeCliSession}
           onClose={() => setShowSessionHistory(false)}

@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Sparkles, FolderOpen, Loader2 } from 'lucide-react';
 import { useBackend } from '../services/backend';
 import { useProjectStore } from '../stores/projectStore';
-import type { AgentType, CreateProjectInput } from '../types/project';
+import type { CreateProjectInput } from '../services/backend/types';
+import type { AgentType } from '../types/project';
 import type { ProjectAnalysisResult } from '../types/tauri';
 import AgentSelector from '../components/AgentSelector';
 import FolderPicker from '../components/FolderPicker';
@@ -197,10 +198,10 @@ export default function ProjectWizard() {
     try {
       const projectInput: CreateProjectInput = {
         name: formData.name,
-        path: formData.path,
+        root_path: formData.path,
         description: formData.description || undefined,
-        agentType: formData.agentType,
-        initGit: formData.initGit,
+        agent_type: formData.agentType as string,
+        initialize_git: formData.initGit,
       };
 
       const project = await createProject(projectInput);

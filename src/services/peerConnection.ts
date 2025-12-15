@@ -6,6 +6,7 @@
 
 import { serverConnection } from './serverConnection';
 import { useSettingsStore } from '../stores/settingsStore';
+import { handleWebRTCCommand, isWebRTCHostAvailable } from './webrtcHost';
 
 interface ICEServer {
   urls: string;
@@ -326,9 +327,27 @@ class PeerConnection {
         break;
 
       case 'request':
-        // Handle incoming request (for when this machine is the remote)
-        // This would be implemented when we add the host-side logic
-        console.log('[PeerConnection] Received request:', message.command);
+        // Handle incoming request (for when this machine is the host/remote)
+        if (isWebRTCHostAvailable()) {
+          console.log('[PeerConnection] Received request:', message.command);
+          // Execute the command and send response
+          handleWebRTCCommand(message).then((response) => {
+            if (this.dataChannel && this.dataChannel.readyState === 'open') {
+              this.dataChannel.send(JSON.stringify(response));
+            }
+          });
+        } else {
+          console.warn('[PeerConnection] Received request but not running as host');
+          // Send error response
+          if (this.dataChannel && this.dataChannel.readyState === 'open') {
+            this.dataChannel.send(JSON.stringify({
+              type: 'response',
+              id: message.id,
+              success: false,
+              error: 'This machine is not running as a host',
+            }));
+          }
+        }
         break;
     }
   }

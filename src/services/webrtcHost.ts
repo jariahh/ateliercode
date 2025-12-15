@@ -1,0 +1,311 @@
+/**
+ * WebRTC Host Service
+ * Handles incoming WebRTC commands on the desktop (Tauri) side.
+ * Routes commands to Tauri and sends responses back to the web client.
+ */
+
+import { invoke } from '@tauri-apps/api/core';
+import type { Project, CreateProjectInput, UpdateProjectInput, ProjectAnalysisResult, AgentInfo, Task, CreateTaskInput, UpdateTaskInput } from '../types/tauri';
+
+interface PeerMessage {
+  type: 'request' | 'response' | 'event';
+  id?: string;
+  command?: string;
+  params?: Record<string, unknown>;
+  success?: boolean;
+  data?: unknown;
+  error?: string;
+}
+
+type CommandHandler = (params: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * Command handlers that map WebRTC commands to Tauri invocations
+ */
+const commandHandlers: Record<string, CommandHandler> = {
+  // Project commands
+  get_projects: async () => {
+    return await invoke<Project[]>('get_projects');
+  },
+
+  get_project: async (params) => {
+    return await invoke<Project | null>('get_project', { id: params.id as string });
+  },
+
+  create_project: async (params) => {
+    const input = params.input as CreateProjectInput;
+    return await invoke<Project>('create_project', { input });
+  },
+
+  update_project: async (params) => {
+    return await invoke<Project>('update_project', {
+      id: params.id as string,
+      updates: params.updates as UpdateProjectInput,
+    });
+  },
+
+  delete_project: async (params) => {
+    return await invoke<boolean>('delete_project', { id: params.id as string });
+  },
+
+  has_recent_activity: async (params) => {
+    return await invoke<boolean>('has_recent_activity', { projectId: params.id as string });
+  },
+
+  analyze_project_directory: async (params) => {
+    return await invoke<ProjectAnalysisResult>('analyze_project_directory', { path: params.path as string });
+  },
+
+  analyze_project_with_ai: async (params) => {
+    return await invoke<ProjectAnalysisResult>('analyze_project_with_ai', { path: params.path as string });
+  },
+
+  generate_project_details: async (params) => {
+    return await invoke<{ name: string; description: string }>('generate_project_details', {
+      projectPath: params.projectPath as string,
+    });
+  },
+
+  // File commands
+  select_folder: async () => {
+    return await invoke<string | null>('select_folder');
+  },
+
+  read_file_content: async (params) => {
+    return await invoke<string>('read_file_content', { path: params.path as string });
+  },
+
+  get_folder_children: async (params) => {
+    return await invoke<unknown[]>('get_folder_children', {
+      folderPath: params.folderPath as string,
+      rootPath: params.rootPath as string,
+    });
+  },
+
+  read_project_files: async (params) => {
+    return await invoke<unknown[]>('read_project_files', { rootPath: params.rootPath as string });
+  },
+
+  get_git_status: async (params) => {
+    return await invoke<string>('get_git_status', { rootPath: params.rootPath as string });
+  },
+
+  // Agent commands
+  start_agent_session: async (params) => {
+    return await invoke<unknown>('start_agent_session', {
+      projectId: params.projectId as string,
+      agentType: params.agentType as string,
+      resumeSessionId: params.resumeSessionId as string | null,
+    });
+  },
+
+  send_to_agent: async (params) => {
+    return await invoke<void>('send_to_agent', {
+      sessionId: params.sessionId as string,
+      message: params.message as string,
+    });
+  },
+
+  read_agent_output: async (params) => {
+    return await invoke<string[]>('read_agent_output', {
+      sessionId: params.sessionId as string,
+      timeoutMs: params.timeoutMs as number | undefined,
+    });
+  },
+
+  stop_agent_session: async (params) => {
+    return await invoke<void>('stop_agent_session', { sessionId: params.sessionId as string });
+  },
+
+  get_agent_status: async (params) => {
+    return await invoke<unknown>('get_agent_status', { sessionId: params.sessionId as string });
+  },
+
+  list_agent_sessions: async () => {
+    return await invoke<unknown[]>('list_agent_sessions');
+  },
+
+  check_agent_health: async (params) => {
+    return await invoke<boolean>('check_agent_health', { sessionId: params.sessionId as string });
+  },
+
+  sync_claude_session_id: async (params) => {
+    return await invoke<string | null>('sync_claude_session_id', { sessionId: params.sessionId as string });
+  },
+
+  get_project_sessions: async (params) => {
+    return await invoke<unknown[]>('get_project_sessions', { projectId: params.projectId as string });
+  },
+
+  // Chat commands
+  get_chat_history: async (params) => {
+    return await invoke<unknown[]>('get_chat_history', {
+      pluginName: params.pluginName as string,
+      cliSessionId: params.cliSessionId as string,
+    });
+  },
+
+  get_chat_history_paginated: async (params) => {
+    return await invoke<unknown>('get_chat_history_paginated', {
+      pluginName: params.pluginName as string,
+      cliSessionId: params.cliSessionId as string,
+      offset: params.offset as number,
+      limit: params.limit as number,
+    });
+  },
+
+  list_cli_sessions: async (params) => {
+    return await invoke<unknown[]>('list_cli_sessions', {
+      pluginName: params.pluginName as string,
+      projectPath: params.projectPath as string,
+    });
+  },
+
+  start_chat_session: async (params) => {
+    return await invoke<unknown>('start_chat_session', {
+      projectId: params.projectId as string,
+      pluginName: params.pluginName as string,
+    });
+  },
+
+  send_chat_message: async (params) => {
+    return await invoke<void>('send_chat_message', {
+      sessionId: params.sessionId as string,
+      pluginName: params.pluginName as string,
+      cliSessionId: params.cliSessionId as string,
+      projectPath: params.projectPath as string,
+      message: params.message as string,
+    });
+  },
+
+  start_watching_session: async (params) => {
+    return await invoke<string>('start_watching_session', {
+      pluginName: params.pluginName as string,
+      projectPath: params.projectPath as string,
+      cliSessionId: params.cliSessionId as string,
+    });
+  },
+
+  stop_watching_session: async (params) => {
+    return await invoke<void>('stop_watching_session', {
+      pluginName: params.pluginName as string,
+      watchId: params.watchId as string,
+      cliSessionId: params.cliSessionId as string,
+    });
+  },
+
+  // Task commands
+  create_task: async (params) => {
+    return await invoke<Task>('create_task', { input: params.input as CreateTaskInput });
+  },
+
+  get_tasks: async (params) => {
+    return await invoke<Task[]>('get_tasks', { projectId: params.projectId as string });
+  },
+
+  update_task: async (params) => {
+    return await invoke<Task>('update_task', {
+      taskId: params.taskId as string,
+      updates: params.updates as UpdateTaskInput,
+    });
+  },
+
+  delete_task: async (params) => {
+    return await invoke<boolean>('delete_task', { taskId: params.taskId as string });
+  },
+
+  update_task_status: async (params) => {
+    return await invoke<Task>('update_task_status', {
+      taskId: params.taskId as string,
+      status: params.status as string,
+    });
+  },
+
+  // System commands
+  detect_agents: async () => {
+    return await invoke<AgentInfo[]>('detect_agents');
+  },
+
+  get_hostname: async () => {
+    return await invoke<string>('get_hostname');
+  },
+
+  get_platform: async () => {
+    return await invoke<string>('get_platform');
+  },
+
+  // Transcription commands
+  check_whisper_installation: async () => {
+    return await invoke<{ installed: boolean; model_downloaded: boolean }>('check_whisper_installation');
+  },
+
+  install_whisper: async (params) => {
+    return await invoke<void>('install_whisper', { model: params.model as string });
+  },
+
+  transcribe_local: async (params) => {
+    return await invoke<{ text: string }>('transcribe_local', {
+      audioData: params.audioData as number[],
+      model: params.model as string,
+    });
+  },
+
+  transcribe_openai: async (params) => {
+    return await invoke<{ text: string }>('transcribe_openai', {
+      audioData: params.audioData as number[],
+      apiKey: params.apiKey as string,
+    });
+  },
+};
+
+/**
+ * Handle an incoming WebRTC command and return a response
+ */
+export async function handleWebRTCCommand(message: PeerMessage): Promise<PeerMessage> {
+  if (message.type !== 'request' || !message.command) {
+    return {
+      type: 'response',
+      id: message.id,
+      success: false,
+      error: 'Invalid request format',
+    };
+  }
+
+  const handler = commandHandlers[message.command];
+  if (!handler) {
+    console.warn(`[WebRTCHost] Unknown command: ${message.command}`);
+    return {
+      type: 'response',
+      id: message.id,
+      success: false,
+      error: `Unknown command: ${message.command}`,
+    };
+  }
+
+  try {
+    console.log(`[WebRTCHost] Executing command: ${message.command}`, message.params);
+    const result = await handler(message.params || {});
+    console.log(`[WebRTCHost] Command ${message.command} succeeded`);
+    return {
+      type: 'response',
+      id: message.id,
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    console.error(`[WebRTCHost] Command ${message.command} failed:`, error);
+    return {
+      type: 'response',
+      id: message.id,
+      success: false,
+      error: error instanceof Error ? error.message : 'Command execution failed',
+    };
+  }
+}
+
+/**
+ * Check if the WebRTC host is available (running in Tauri)
+ */
+export function isWebRTCHostAvailable(): boolean {
+  return typeof window !== 'undefined' && '__TAURI__' in window;
+}

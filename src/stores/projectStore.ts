@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, CreateProjectInput, AgentType } from '../types/project';
-import * as tauriApi from '../lib/tauri';
+import type { Project, CreateProjectInput, UpdateProjectInput } from '../services/backend/types';
+import { getBackend } from '../services/backend';
 
 interface ProjectState {
   // State
@@ -14,7 +14,7 @@ interface ProjectState {
   createProject: (input: CreateProjectInput) => Promise<Project>;
   loadProjects: () => Promise<void>;
   setCurrentProject: (projectId: string | null) => Promise<void>;
-  updateProject: (projectId: string, updates: Partial<Project>) => Promise<void>;
+  updateProject: (projectId: string, updates: UpdateProjectInput) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   archiveProject: (projectId: string) => void;
   getProject: (projectId: string) => Promise<Project | null | undefined>;
@@ -34,30 +34,8 @@ export const useProjectStore = create<ProjectState>()(
         set({ isLoading: true, error: null });
 
         try {
-          // Use Tauri backend if available, otherwise fallback to mock
-          let newProject: Project;
-
-          if (tauriApi.isTauriAvailable()) {
-            newProject = await tauriApi.createProject(input);
-          } else {
-            // Mock implementation for browser dev mode
-            console.warn('Tauri not available. Using mock project creation.');
-            newProject = {
-              id: crypto.randomUUID(),
-              name: input.name,
-              path: input.path,
-              description: input.description,
-              agent: {
-                type: input.agentType,
-                installed: false,
-                enabled: true,
-              },
-              status: 'active',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              tags: [],
-            };
-          }
+          const backend = getBackend();
+          const newProject = await backend.projects.create(input);
 
           set((state) => ({
             projects: [...state.projects, newProject],
@@ -78,17 +56,12 @@ export const useProjectStore = create<ProjectState>()(
         set({ isLoading: true, error: null });
 
         try {
-          // Use Tauri backend if available
-          if (tauriApi.isTauriAvailable()) {
-            const projects = await tauriApi.getProjects();
-            set({ projects, isLoading: false });
-          } else {
-            // In browser dev mode, use persisted state
-            console.warn('Tauri not available. Using persisted state.');
-            set({ isLoading: false });
-          }
+          const backend = getBackend();
+          const projects = await backend.projects.list();
+          set({ projects, isLoading: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to load projects';
+          console.error('Failed to load projects:', error);
           set({ error: errorMessage, isLoading: false });
         }
       },
@@ -100,95 +73,60 @@ export const useProjectStore = create<ProjectState>()(
           return;
         }
 
-        // If using Tauri, fetch from backend to update last_activity
-        if (tauriApi.isTauriAvailable()) {
-          try {
-            const project = await tauriApi.getProject(projectId);
-            if (project) {
-              set((state) => ({
-                currentProject: project,
-                projects: state.projects.map((p) =>
-                  p.id === projectId ? project : p
-                ),
-              }));
-            }
-          } catch (error) {
-            console.error('Failed to set current project:', error);
-          }
-        } else {
-          // Fallback for browser dev mode
-          const project = get().projects.find((p) => p.id === projectId);
+        try {
+          const backend = getBackend();
+          const project = await backend.projects.get(projectId);
           if (project) {
-            const updatedProject = {
-              ...project,
-              lastOpenedAt: new Date().toISOString(),
-            };
-
             set((state) => ({
-              currentProject: updatedProject,
+              currentProject: project,
               projects: state.projects.map((p) =>
-                p.id === projectId ? updatedProject : p
+                p.id === projectId ? project : p
               ),
             }));
+          }
+        } catch (error) {
+          console.error('Failed to set current project:', error);
+          // Fallback to local state
+          const project = get().projects.find((p) => p.id === projectId);
+          if (project) {
+            set({ currentProject: project });
           }
         }
       },
 
       // Update a project
-      updateProject: async (projectId: string, updates: Partial<Project>) => {
-        if (tauriApi.isTauriAvailable()) {
-          try {
-            const updatedProject = await tauriApi.updateProject(projectId, updates);
-            set((state) => ({
-              projects: state.projects.map((p) =>
-                p.id === projectId ? updatedProject : p
-              ),
-              currentProject:
-                state.currentProject?.id === projectId
-                  ? updatedProject
-                  : state.currentProject,
-            }));
-          } catch (error) {
-            console.error('Failed to update project:', error);
-            throw error;
-          }
-        } else {
-          // Fallback for browser dev mode
+      updateProject: async (projectId: string, updates: UpdateProjectInput) => {
+        try {
+          const backend = getBackend();
+          const updatedProject = await backend.projects.update(projectId, updates);
           set((state) => ({
             projects: state.projects.map((p) =>
-              p.id === projectId
-                ? { ...p, ...updates, updatedAt: new Date().toISOString() }
-                : p
+              p.id === projectId ? updatedProject : p
             ),
             currentProject:
               state.currentProject?.id === projectId
-                ? { ...state.currentProject, ...updates, updatedAt: new Date().toISOString() }
+                ? updatedProject
                 : state.currentProject,
           }));
+        } catch (error) {
+          console.error('Failed to update project:', error);
+          throw error;
         }
       },
 
       // Delete a project
       deleteProject: async (projectId: string) => {
-        if (tauriApi.isTauriAvailable()) {
-          try {
-            await tauriApi.deleteProject(projectId);
-            set((state) => ({
-              projects: state.projects.filter((p) => p.id !== projectId),
-              currentProject:
-                state.currentProject?.id === projectId ? null : state.currentProject,
-            }));
-          } catch (error) {
-            console.error('Failed to delete project:', error);
-            throw error;
-          }
-        } else {
-          // Fallback for browser dev mode
+        try {
+          const backend = getBackend();
+          await backend.projects.delete(projectId);
           set((state) => ({
             projects: state.projects.filter((p) => p.id !== projectId),
             currentProject:
               state.currentProject?.id === projectId ? null : state.currentProject,
           }));
+        } catch (error) {
+          console.error('Failed to delete project:', error);
+          throw error;
         }
       },
 
@@ -199,16 +137,12 @@ export const useProjectStore = create<ProjectState>()(
 
       // Get a specific project
       getProject: async (projectId: string) => {
-        if (tauriApi.isTauriAvailable()) {
-          try {
-            return await tauriApi.getProject(projectId);
-          } catch (error) {
-            console.error('Failed to get project:', error);
-            return null;
-          }
-        } else {
-          // Fallback for browser dev mode
-          return get().projects.find((p) => p.id === projectId);
+        try {
+          const backend = getBackend();
+          return await backend.projects.get(projectId);
+        } catch (error) {
+          console.error('Failed to get project:', error);
+          return null;
         }
       },
     }),

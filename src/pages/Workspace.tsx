@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings, Sparkles, Save, GitCompare } from 'lucide-react';
-import type { Project } from '../types/project';
+import type { Project } from '../services/backend/types';
 import OverviewTab from '../components/workspace/OverviewTab';
 import TasksTab from '../components/workspace/TasksTab';
 import FilesTab from '../components/workspace/FilesTab';
@@ -26,7 +26,7 @@ export default function Workspace() {
   // Settings tab state
   const [editedName, setEditedName] = useState('');
   const [editedDescription, setEditedDescription] = useState('');
-  const [editedStatus, setEditedStatus] = useState<'active' | 'archived' | 'paused'>('active');
+  const [editedStatus, setEditedStatus] = useState<string>('active');
   const [editedIcon, setEditedIcon] = useState<string | null>(null);
   const [editedColor, setEditedColor] = useState<string | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -55,7 +55,7 @@ export default function Workspace() {
         // Initialize settings form fields
         if (projectData) {
           setEditedName(projectData.name);
-          setEditedDescription(projectData.description || '');
+          setEditedDescription(projectData.prd_content || '');
           setEditedStatus(projectData.status);
           setEditedIcon(projectData.icon || null);
           setEditedColor(projectData.color || null);
@@ -75,7 +75,7 @@ export default function Workspace() {
   useEffect(() => {
     if (!project) return;
     const nameChanged = editedName !== project.name;
-    const descChanged = editedDescription !== (project.description || '');
+    const descChanged = editedDescription !== (project.prd_content || '');
     const statusChanged = editedStatus !== project.status;
     setHasChanges(nameChanged || descChanged || statusChanged);
   }, [editedName, editedDescription, editedStatus, project]);
@@ -88,9 +88,9 @@ export default function Workspace() {
     setShowAIModal(true);
 
     try {
-      console.log('Calling generate_project_details with path:', project.path);
+      console.log('Calling generate_project_details with path:', project.root_path);
       const details = await invoke<AIProjectDetails>('generate_project_details', {
-        projectPath: project.path,
+        projectPath: project.root_path,
       });
 
       console.log('Received AI-generated details:', details);
@@ -132,7 +132,13 @@ export default function Workspace() {
       setProject(updatedProject);
 
       // Update the Zustand store so the sidebar updates
-      await updateProjectInStore(id, updatedProject);
+      await updateProjectInStore(id, {
+        name: editedName,
+        prd_content: editedDescription,
+        status: editedStatus,
+        icon: editedIcon || undefined,
+        color: editedColor || undefined,
+      });
 
       setHasChanges(false);
     } catch (error) {
@@ -178,14 +184,14 @@ export default function Workspace() {
           <Folder className="w-5 h-5" />
           <div>
             <h1 className="text-xl font-bold">{project.name}</h1>
-            <p className="text-xs text-base-content/60">{project.path}</p>
+            <p className="text-xs text-base-content/60">{project.root_path}</p>
           </div>
         </div>
         <div className="flex-none gap-2">
-          {project.agent && (
+          {project.agent_type && (
             <div className="badge badge-primary gap-2">
               <Bot className="w-3 h-3" />
-              {project.agent.type}
+              {project.agent_type}
             </div>
           )}
         </div>
@@ -244,11 +250,11 @@ export default function Workspace() {
 
       {/* Tab Content */}
       <div className="p-8">
-        {activeTab === 'overview' && id && project.agent && (
+        {activeTab === 'overview' && id && project.agent_type && (
           <OverviewTab
             projectId={id}
-            agentType={project.agent.type}
-            projectPath={project.path}
+            agentType={project.agent_type}
+            projectPath={project.root_path}
           />
         )}
 
@@ -430,7 +436,7 @@ export default function Workspace() {
                   <input
                     type="text"
                     className="input input-bordered w-full font-mono text-sm"
-                    value={project.path}
+                    value={project.root_path}
                     disabled
                   />
                   <label className="label">
@@ -447,7 +453,7 @@ export default function Workspace() {
                   <input
                     type="text"
                     className="input input-bordered w-full"
-                    value={project.agent?.type || 'Unknown'}
+                    value={project.agent_type || 'Unknown'}
                     disabled
                   />
                   <label className="label">
@@ -463,7 +469,7 @@ export default function Workspace() {
                   <button
                     onClick={() => {
                       setEditedName(project.name);
-                      setEditedDescription(project.description || '');
+                      setEditedDescription(project.prd_content || '');
                       setEditedStatus(project.status);
                       setEditedIcon(project.icon || null);
                       setEditedColor(project.color || null);

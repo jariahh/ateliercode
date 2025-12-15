@@ -2,7 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import { Monitor, ChevronDown, Wifi, WifiOff, Cloud, CloudOff, Globe } from 'lucide-react';
 import { useMachineStore, CLOUD_MACHINE_ID } from '../stores/machineStore';
 import { useAuthStore } from '../stores/authStore';
+import { useProjectStore } from '../stores/projectStore';
 import { serverConnection } from '../services/serverConnection';
+import { peerConnection } from '../services/peerConnection';
+import { switchToWebRTCBackend, switchToTauriBackend, isTauriAvailable } from '../services/backend';
 import { isWeb } from '../lib/platform';
 
 interface MachineSelectorProps {
@@ -20,6 +23,7 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
   const selectMachine = useMachineStore((state) => state.selectMachine);
 
   const { isAuthenticated } = useAuthStore();
+  const loadProjects = useProjectStore((state) => state.loadProjects);
   const webMode = isWeb();
 
   // Close dropdown when clicking outside
@@ -44,13 +48,34 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const isLocalSelected = !selectedMachineId || selectedMachineId === localMachineId;
 
-  const handleSelectMachine = (machineId: string | null) => {
+  const handleSelectMachine = async (machineId: string | null) => {
     selectMachine(machineId);
     setIsOpen(false);
 
-    // If selecting a remote machine, initiate connection
-    if (machineId && machineId !== localMachineId) {
-      serverConnection.connectToMachine(machineId);
+    // If selecting a remote machine, initiate WebRTC connection
+    if (machineId && machineId !== localMachineId && machineId !== CLOUD_MACHINE_ID) {
+      try {
+        console.log('[MachineSelector] Connecting to remote machine:', machineId);
+        const connected = await peerConnection.connect(machineId);
+
+        if (connected) {
+          console.log('[MachineSelector] WebRTC connected, switching backend');
+          switchToWebRTCBackend();
+          // Reload projects from the remote machine
+          await loadProjects();
+        } else {
+          console.error('[MachineSelector] Failed to connect to remote machine');
+        }
+      } catch (error) {
+        console.error('[MachineSelector] Connection error:', error);
+      }
+    } else if (!machineId || machineId === localMachineId) {
+      // Switching back to local machine
+      if (isTauriAvailable()) {
+        console.log('[MachineSelector] Switching to local Tauri backend');
+        switchToTauriBackend();
+        await loadProjects();
+      }
     }
   };
 
