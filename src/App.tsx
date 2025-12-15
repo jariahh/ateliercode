@@ -29,6 +29,10 @@ function App() {
         } else {
           // Set machine to cloud when authenticated in web mode
           selectMachine(CLOUD_MACHINE_ID);
+          // Connect to server for WebRTC signaling
+          initServerConnection().catch((err) => {
+            console.log('[App] Server connection not available:', err);
+          });
         }
       } else {
         // Tauri mode: connect to server in background (optional)
@@ -41,10 +45,14 @@ function App() {
     initApp();
   }, []);
 
-  // When auth state changes in web mode, update machine selection
+  // When auth state changes in web mode, connect to server for signaling
   useEffect(() => {
     if (isWeb() && isAuthenticated) {
       selectMachine(CLOUD_MACHINE_ID);
+      // Connect to server for WebRTC signaling after auth
+      initServerConnection().catch((err) => {
+        console.log('[App] Server connection not available:', err);
+      });
     }
   }, [isAuthenticated]);
 

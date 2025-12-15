@@ -456,27 +456,42 @@ export const serverConnection = new ServerConnection();
 export async function initServerConnection(): Promise<void> {
   const settings = useSettingsStore.getState();
 
-  if (!settings.server.enabled || !settings.server.url) {
+  // In web mode, use hardcoded server URL and authStore token
+  const isWebMode = typeof window !== 'undefined' && !('__TAURI__' in window);
+  const serverUrl = isWebMode ? 'wss://api.ateliercode.dev' : settings.server.url;
+  const serverEnabled = isWebMode ? true : settings.server.enabled;
+
+  if (!serverEnabled || !serverUrl) {
     console.log('[ServerConnection] Server connection disabled or not configured');
     return;
   }
 
-  console.log('[ServerConnection] Attempting to connect to server...');
-  const connected = await serverConnection.connect(settings.server.url);
+  console.log('[ServerConnection] Attempting to connect to server...', serverUrl);
+  const connected = await serverConnection.connect(serverUrl);
 
   if (!connected) {
     console.log('[ServerConnection] Server unavailable - continuing in offline mode');
     return;
   }
 
-  // If we have a saved token, try to authenticate
-  if (settings.server.token) {
-    const result = await serverConnection.loginWithToken(settings.server.token);
-    if (result.success) {
-      console.log('[ServerConnection] Authenticated with saved token');
+  // Get token - from authStore in web mode, settings in Tauri mode
+  let token: string | null = null;
+  if (isWebMode) {
+    // Dynamic import to avoid circular dependency issues
+    const { useAuthStore } = await import('../stores/authStore');
+    token = useAuthStore.getState().token;
+  } else {
+    token = settings.server.token;
+  }
 
-      // Register this machine if we have a name
-      if (settings.server.machineName) {
+  // If we have a token, try to authenticate
+  if (token) {
+    const result = await serverConnection.loginWithToken(token);
+    if (result.success) {
+      console.log('[ServerConnection] Authenticated with token');
+
+      // Register this machine if we have a name (Tauri mode only)
+      if (!isWebMode && settings.server.machineName) {
         await serverConnection.registerMachine(settings.server.machineName);
       }
 
