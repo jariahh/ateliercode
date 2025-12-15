@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, FolderOpen, Plus, Home, Settings, Cloud } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FolderOpen, Plus, Home, Settings, Cloud, LogIn } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
 import { useProjectActivityStore, startActivityCleanup, stopActivityCleanup } from '../stores/projectActivityStore';
-import { useMachineStore } from '../stores/machineStore';
+import { useMachineStore, CLOUD_MACHINE_ID } from '../stores/machineStore';
+import { useAuthStore } from '../stores/authStore';
+import { isWeb } from '../lib/platform';
 import MachineSelector from './MachineSelector';
 
 export default function ProjectSidebar() {
@@ -22,6 +24,22 @@ export default function ProjectSidebar() {
   const connectionState = useMachineStore((state) => state.connectionState);
   const isRemoteMode = useMachineStore((state) => state.isRemoteMode);
   const getSelectedMachine = useMachineStore((state) => state.getSelectedMachine);
+  const selectedMachineId = useMachineStore((state) => state.selectedMachineId);
+  const getOnlineMachines = useMachineStore((state) => state.getOnlineMachines);
+
+  // Auth store for web mode
+  const { isAuthenticated, setShowAuthDialog } = useAuthStore();
+
+  // Check if we're in web mode
+  const webMode = isWeb();
+
+  // In web mode, check if user has selected a real machine (not cloud)
+  const hasSelectedRealMachine = webMode
+    ? selectedMachineId !== null && selectedMachineId !== CLOUD_MACHINE_ID
+    : true;
+
+  // Get available machines for the selector
+  const onlineMachines = getOnlineMachines();
 
   // Get current project ID from URL
   const currentProjectId = location.pathname.startsWith('/workspace/')
@@ -52,7 +70,16 @@ export default function ProjectSidebar() {
   };
 
   const handleNewProject = () => {
+    // In web mode without a real machine selected, show a tooltip/alert
+    if (webMode && !hasSelectedRealMachine) {
+      // Could show a toast here, but for now just don't navigate
+      return;
+    }
     navigate('/wizard');
+  };
+
+  const handleSignIn = () => {
+    setShowAuthDialog(true);
   };
 
   return (
@@ -91,9 +118,22 @@ export default function ProjectSidebar() {
             </button>
           </div>
 
-          {/* Machine Selector (only shown when connected to server) */}
-          {connectionState === 'authenticated' && (
+          {/* Machine Selector - shown in web mode or when connected to server */}
+          {(webMode || connectionState === 'authenticated') && (
             <MachineSelector isCollapsed={isCollapsed} />
+          )}
+
+          {/* Sign In prompt for web mode when not authenticated */}
+          {webMode && !isAuthenticated && !isCollapsed && (
+            <div className="px-4 py-2 border-b border-base-300">
+              <button
+                onClick={handleSignIn}
+                className="btn btn-primary btn-sm w-full gap-2"
+              >
+                <LogIn className="w-4 h-4" />
+                Sign In
+              </button>
+            </div>
           )}
 
           {/* Navigation Items */}
@@ -113,18 +153,23 @@ export default function ProjectSidebar() {
             </button>
 
             {/* New Project Button */}
-            <button
-              onClick={handleNewProject}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors mt-1 ${
-                location.pathname === '/wizard'
-                  ? 'bg-primary text-primary-content'
-                  : 'hover:bg-base-300'
-              }`}
-              title="New Project"
-            >
-              <Plus className="w-5 h-5 flex-shrink-0" />
-              {!isCollapsed && <span className="text-sm font-medium">New Project</span>}
-            </button>
+            <div className={webMode && !hasSelectedRealMachine ? 'tooltip tooltip-right' : ''} data-tip="Select a machine first">
+              <button
+                onClick={handleNewProject}
+                disabled={webMode && !hasSelectedRealMachine}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors mt-1 ${
+                  location.pathname === '/wizard'
+                    ? 'bg-primary text-primary-content'
+                    : webMode && !hasSelectedRealMachine
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-base-300'
+                }`}
+                title={webMode && !hasSelectedRealMachine ? 'Select a machine to add projects' : 'New Project'}
+              >
+                <Plus className="w-5 h-5 flex-shrink-0" />
+                {!isCollapsed && <span className="text-sm font-medium">New Project</span>}
+              </button>
+            </div>
 
             {/* Settings Button */}
             <button

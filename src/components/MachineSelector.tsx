@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Monitor, ChevronDown, Wifi, WifiOff, Cloud, CloudOff } from 'lucide-react';
-import { useMachineStore } from '../stores/machineStore';
+import { Monitor, ChevronDown, Wifi, WifiOff, Cloud, CloudOff, Globe } from 'lucide-react';
+import { useMachineStore, CLOUD_MACHINE_ID } from '../stores/machineStore';
+import { useAuthStore } from '../stores/authStore';
 import { serverConnection } from '../services/serverConnection';
+import { isWeb } from '../lib/platform';
 
 interface MachineSelectorProps {
   isCollapsed: boolean;
@@ -17,6 +19,9 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
   const localMachineId = useMachineStore((state) => state.localMachineId);
   const selectMachine = useMachineStore((state) => state.selectMachine);
 
+  const { isAuthenticated } = useAuthStore();
+  const webMode = isWeb();
+
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -28,10 +33,13 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Don't render if not connected to server
-  if (connectionState !== 'authenticated') {
+  // Don't render if not in web mode and not connected to server
+  if (!webMode && connectionState !== 'authenticated') {
     return null;
   }
+
+  // In web mode, show even if not authenticated (will show "Sign in to see machines")
+  const isCloudSelected = selectedMachineId === CLOUD_MACHINE_ID;
 
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const isLocalSelected = !selectedMachineId || selectedMachineId === localMachineId;
@@ -106,7 +114,9 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
       >
         {/* Machine Icon */}
         <div className="relative">
-          {isLocalSelected ? (
+          {webMode && isCloudSelected ? (
+            <Globe className="w-5 h-5 text-primary" />
+          ) : isLocalSelected ? (
             <Monitor className="w-5 h-5" />
           ) : (
             <Cloud className="w-5 h-5 text-info" />
@@ -116,10 +126,19 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
         {/* Machine Name */}
         <div className="flex-1 text-left min-w-0">
           <div className="text-sm font-medium truncate">
-            {isLocalSelected ? 'This Machine' : selectedMachine?.name || 'Select Machine'}
+            {webMode && isCloudSelected
+              ? 'Cloud'
+              : isLocalSelected
+                ? 'This Machine'
+                : selectedMachine?.name || 'Select Machine'}
           </div>
           <div className="text-xs text-base-content/60 truncate">
-            {isLocalSelected ? (
+            {webMode && isCloudSelected ? (
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-primary inline-block" />
+                Select a machine
+              </span>
+            ) : isLocalSelected ? (
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-success inline-block" />
                 Local
@@ -157,6 +176,8 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
             selectedMachineId={selectedMachineId}
             onSelect={handleSelectMachine}
             getPlatformIcon={getPlatformIcon}
+            webMode={webMode}
+            isAuthenticated={isAuthenticated}
           />
         </div>
       )}
@@ -177,6 +198,8 @@ interface MachineListProps {
   selectedMachineId: string | null;
   onSelect: (machineId: string | null) => void;
   getPlatformIcon: (platform: 'windows' | 'macos' | 'linux') => string;
+  webMode?: boolean;
+  isAuthenticated?: boolean;
 }
 
 function MachineList({
@@ -185,38 +208,53 @@ function MachineList({
   selectedMachineId,
   onSelect,
   getPlatformIcon,
+  webMode = false,
+  isAuthenticated = false,
 }: MachineListProps) {
   const isLocalSelected = !selectedMachineId || selectedMachineId === localMachineId;
+  const remoteMachines = machines.filter((m) => m.id !== localMachineId);
+
+  // In web mode and not authenticated, show sign in prompt
+  if (webMode && !isAuthenticated) {
+    return (
+      <div className="py-1">
+        <div className="px-3 py-4 text-center text-sm text-base-content/60">
+          <Cloud className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p>Sign in to see your machines</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="py-1">
       {/* Header */}
       <div className="px-3 py-2 text-xs font-semibold text-base-content/60 uppercase tracking-wider">
-        My Machines
+        {webMode ? 'Select Machine' : 'My Machines'}
       </div>
 
-      {/* Local Machine Option */}
-      <button
-        onClick={() => onSelect(null)}
-        className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-base-300 transition-colors ${
-          isLocalSelected ? 'bg-base-300' : ''
-        }`}
-      >
-        <Monitor className="w-5 h-5" />
-        <div className="flex-1 text-left">
-          <div className="text-sm font-medium">This Machine</div>
-          <div className="text-xs text-base-content/60">Local</div>
-        </div>
-        <span className="w-2 h-2 rounded-full bg-success" />
-      </button>
+      {/* Local Machine Option - only show in Tauri mode */}
+      {!webMode && (
+        <button
+          onClick={() => onSelect(null)}
+          className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-base-300 transition-colors ${
+            isLocalSelected ? 'bg-base-300' : ''
+          }`}
+        >
+          <Monitor className="w-5 h-5" />
+          <div className="flex-1 text-left">
+            <div className="text-sm font-medium">This Machine</div>
+            <div className="text-xs text-base-content/60">Local</div>
+          </div>
+          <span className="w-2 h-2 rounded-full bg-success" />
+        </button>
+      )}
 
       {/* Divider */}
-      {machines.length > 0 && <div className="divider my-1 px-3" />}
+      {!webMode && remoteMachines.length > 0 && <div className="divider my-1 px-3" />}
 
       {/* Remote Machines */}
-      {machines
-        .filter((m) => m.id !== localMachineId)
-        .map((machine) => (
+      {remoteMachines.map((machine) => (
           <button
             key={machine.id}
             onClick={() => onSelect(machine.id)}
@@ -254,12 +292,14 @@ function MachineList({
         ))}
 
       {/* Empty State */}
-      {machines.filter((m) => m.id !== localMachineId).length === 0 && (
+      {remoteMachines.length === 0 && (
         <div className="px-3 py-4 text-center text-sm text-base-content/60">
           <Cloud className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p>No other machines registered</p>
+          <p>{webMode ? 'No machines online' : 'No other machines registered'}</p>
           <p className="text-xs mt-1">
-            Run AtelierCode on another device to connect
+            {webMode
+              ? 'Start AtelierCode on a machine to connect'
+              : 'Run AtelierCode on another device to connect'}
           </p>
         </div>
       )}

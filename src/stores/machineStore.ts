@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import type { MachineInfo } from '../services/serverConnection';
+import { isWeb } from '../lib/platform';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'authenticated';
+
+// Special machine ID for cloud/web mode
+export const CLOUD_MACHINE_ID = 'cloud';
 
 interface MachineState {
   // Connection to central server
@@ -11,7 +15,7 @@ interface MachineState {
   // Available machines
   machines: MachineInfo[];
 
-  // Currently selected remote machine (null = local)
+  // Currently selected remote machine (null = local, 'cloud' = web mode)
   selectedMachineId: string | null;
 
   // Actions
@@ -23,6 +27,8 @@ interface MachineState {
 
   // Computed
   isRemoteMode: () => boolean;
+  isCloudMode: () => boolean;
+  isWebWithoutMachine: () => boolean;
   getSelectedMachine: () => MachineInfo | null;
   getOnlineMachines: () => MachineInfo[];
 }
@@ -53,9 +59,20 @@ export const useMachineStore = create<MachineState>()((set, get) => ({
     return selectedMachineId !== null && selectedMachineId !== localMachineId;
   },
 
+  isCloudMode: () => {
+    const { selectedMachineId } = get();
+    return selectedMachineId === CLOUD_MACHINE_ID || isWeb();
+  },
+
+  isWebWithoutMachine: () => {
+    const { selectedMachineId } = get();
+    // In web mode with no machine selected (or cloud selected but no real machine)
+    return isWeb() && (selectedMachineId === null || selectedMachineId === CLOUD_MACHINE_ID);
+  },
+
   getSelectedMachine: () => {
     const { selectedMachineId, machines } = get();
-    if (!selectedMachineId) return null;
+    if (!selectedMachineId || selectedMachineId === CLOUD_MACHINE_ID) return null;
     return machines.find((m) => m.id === selectedMachineId) || null;
   },
 

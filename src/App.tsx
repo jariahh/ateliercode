@@ -7,19 +7,46 @@ import Settings from './pages/Settings';
 import ThemeSelector from './components/ThemeSelector';
 import ProjectSidebar from './components/ProjectSidebar';
 import ErrorBoundary from './components/ErrorBoundary';
+import AuthDialog from './components/AuthDialog';
 import { initServerConnection } from './services/serverConnection';
+import { useAuthStore } from './stores/authStore';
+import { useMachineStore, CLOUD_MACHINE_ID } from './stores/machineStore';
+import { isWeb } from './lib/platform';
 
 function App() {
   const currentYear = new Date().getFullYear();
+  const { isAuthenticated, checkAuth, setShowAuthDialog } = useAuthStore();
+  const { selectMachine } = useMachineStore();
 
-  // Initialize server connection on app startup (optional, non-blocking)
+  // Initialize app based on platform
   useEffect(() => {
-    // Attempt to connect to server in background
-    // This is completely optional - app works without it
-    initServerConnection().catch((err) => {
-      console.log('[App] Server connection not available:', err);
-    });
+    const initApp = async () => {
+      if (isWeb()) {
+        // Web mode: check authentication and show dialog if not authenticated
+        const authenticated = await checkAuth();
+        if (!authenticated) {
+          setShowAuthDialog(true);
+        } else {
+          // Set machine to cloud when authenticated in web mode
+          selectMachine(CLOUD_MACHINE_ID);
+        }
+      } else {
+        // Tauri mode: connect to server in background (optional)
+        initServerConnection().catch((err) => {
+          console.log('[App] Server connection not available:', err);
+        });
+      }
+    };
+
+    initApp();
   }, []);
+
+  // When auth state changes in web mode, update machine selection
+  useEffect(() => {
+    if (isWeb() && isAuthenticated) {
+      selectMachine(CLOUD_MACHINE_ID);
+    }
+  }, [isAuthenticated]);
 
   return (
     <ErrorBoundary>
@@ -54,6 +81,9 @@ function App() {
             <ThemeSelector />
           </div>
         </footer>
+
+        {/* Auth Dialog (for web mode) */}
+        <AuthDialog />
       </BrowserRouter>
     </ErrorBoundary>
   );
