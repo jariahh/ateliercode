@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/jariahh/ateliercode-app
   pullPolicy: Always
-  tag: "3ab8161"
+  tag: "54c83e2"
 
 imagePullSecrets: []
 
