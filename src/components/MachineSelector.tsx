@@ -25,6 +25,7 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
   const { isAuthenticated } = useAuthStore();
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const webMode = isWeb();
+  console.log('[MachineSelector] webMode:', webMode, '__TAURI__' in window, typeof window !== 'undefined' ? (window as unknown as { __TAURI__?: unknown }).__TAURI__ : 'no window');
 
   // Close dropdown when clicking outside
   useEffect(() => {
