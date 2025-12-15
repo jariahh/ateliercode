@@ -221,6 +221,51 @@ const commandHandlers: Record<string, CommandHandler> = {
     });
   },
 
+  // Stats commands
+  get_project_stats: async (params) => {
+    return await invoke<unknown>('get_project_stats', { projectId: params.projectId as string });
+  },
+
+  // Chat tab commands
+  get_chat_tabs: async (params) => {
+    return await invoke<unknown[]>('get_chat_tabs', { projectId: params.projectId as string });
+  },
+
+  create_chat_tab: async (params) => {
+    return await invoke<unknown>('create_chat_tab', {
+      projectId: params.projectId as string,
+      agentType: params.agentType as string,
+      label: params.label as string | undefined,
+    });
+  },
+
+  update_chat_tab: async (params) => {
+    return await invoke<unknown>('update_chat_tab', {
+      tabId: params.tabId as string,
+      label: params.label as string | undefined,
+      sessionId: params.sessionId as string | undefined,
+      cliSessionId: params.cliSessionId as string | undefined,
+    });
+  },
+
+  set_active_tab: async (params) => {
+    return await invoke<void>('set_active_tab', {
+      projectId: params.projectId as string,
+      tabId: params.tabId as string,
+    });
+  },
+
+  close_chat_tab: async (params) => {
+    return await invoke<void>('close_chat_tab', { tabId: params.tabId as string });
+  },
+
+  reorder_chat_tabs: async (params) => {
+    return await invoke<void>('reorder_chat_tabs', {
+      projectId: params.projectId as string,
+      tabIds: params.tabIds as string[],
+    });
+  },
+
   // System commands
   detect_agents: async () => {
     return await invoke<AgentInfo[]>('detect_agents');

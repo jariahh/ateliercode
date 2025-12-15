@@ -1,5 +1,11 @@
 // Agent Session API functions for managing persistent AI agent sessions
 import { invoke } from '@tauri-apps/api/core';
+import { peerConnection } from '../services/peerConnection';
+
+// Helper to check if we should use WebRTC
+function useWebRTC(): boolean {
+  return peerConnection.isConnected;
+}
 
 /**
  * Agent session status
@@ -32,6 +38,13 @@ export async function startAgentSession(
   agentType: string,
   resumeSessionId?: string
 ): Promise<AgentSession> {
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<AgentSession>('start_agent_session', {
+      projectId,
+      agentType,
+      resumeSessionId: resumeSessionId || null,
+    });
+  }
   return await invoke<AgentSession>('start_agent_session', {
     projectId,
     agentType,
@@ -49,10 +62,10 @@ export async function sendToAgent(
   sessionId: string,
   message: string
 ): Promise<void> {
-  return await invoke<void>('send_to_agent', {
-    sessionId,
-    message,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<void>('send_to_agent', { sessionId, message });
+  }
+  return await invoke<void>('send_to_agent', { sessionId, message });
 }
 
 /**
@@ -65,10 +78,10 @@ export async function readAgentOutput(
   sessionId: string,
   timeoutMs?: number
 ): Promise<string[]> {
-  return await invoke<string[]>('read_agent_output', {
-    sessionId,
-    timeoutMs,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<string[]>('read_agent_output', { sessionId, timeoutMs });
+  }
+  return await invoke<string[]>('read_agent_output', { sessionId, timeoutMs });
 }
 
 /**
@@ -77,9 +90,10 @@ export async function readAgentOutput(
  * @returns Promise that resolves when session is stopped
  */
 export async function stopAgentSession(sessionId: string): Promise<void> {
-  return await invoke<void>('stop_agent_session', {
-    sessionId,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<void>('stop_agent_session', { sessionId });
+  }
+  return await invoke<void>('stop_agent_session', { sessionId });
 }
 
 /**
@@ -88,9 +102,10 @@ export async function stopAgentSession(sessionId: string): Promise<void> {
  * @returns Promise with the agent session information
  */
 export async function getAgentStatus(sessionId: string): Promise<AgentSession> {
-  return await invoke<AgentSession>('get_agent_status', {
-    sessionId,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<AgentSession>('get_agent_status', { sessionId });
+  }
+  return await invoke<AgentSession>('get_agent_status', { sessionId });
 }
 
 /**
@@ -98,6 +113,9 @@ export async function getAgentStatus(sessionId: string): Promise<AgentSession> {
  * @returns Promise with array of all active agent sessions
  */
 export async function listAgentSessions(): Promise<AgentSession[]> {
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<AgentSession[]>('list_agent_sessions', {});
+  }
   return await invoke<AgentSession[]>('list_agent_sessions');
 }
 
@@ -107,9 +125,10 @@ export async function listAgentSessions(): Promise<AgentSession[]> {
  * @returns Promise with boolean indicating if session is healthy
  */
 export async function checkAgentHealth(sessionId: string): Promise<boolean> {
-  return await invoke<boolean>('check_agent_health', {
-    sessionId,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<boolean>('check_agent_health', { sessionId });
+  }
+  return await invoke<boolean>('check_agent_health', { sessionId });
 }
 
 /**
@@ -118,9 +137,10 @@ export async function checkAgentHealth(sessionId: string): Promise<boolean> {
  * @returns Promise with the claude_session_id if it was synced, or null
  */
 export async function syncClaudeSessionId(sessionId: string): Promise<string | null> {
-  return await invoke<string | null>('sync_claude_session_id', {
-    sessionId,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<string | null>('sync_claude_session_id', { sessionId });
+  }
+  return await invoke<string | null>('sync_claude_session_id', { sessionId });
 }
 
 /**
@@ -144,7 +164,8 @@ export interface DbAgentSession {
  * @returns Promise with array of historical agent sessions
  */
 export async function getProjectSessions(projectId: string): Promise<DbAgentSession[]> {
-  return await invoke<DbAgentSession[]>('get_project_sessions', {
-    projectId,
-  });
+  if (useWebRTC()) {
+    return peerConnection.sendCommand<DbAgentSession[]>('get_project_sessions', { projectId });
+  }
+  return await invoke<DbAgentSession[]>('get_project_sessions', { projectId });
 }

@@ -3,7 +3,7 @@
  * Reads conversation history directly from CLI
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { getBackend } from '../services/backend';
 
 export interface ChatMessage {
   id: string;              // Unique message ID from plugin (stable)
@@ -53,12 +53,10 @@ export async function getChatHistory(
   cliSessionId: string
 ): Promise<ChatMessage[]> {
   console.log('[chat.ts] getChatHistory called with:', { pluginName, cliSessionId });
-  const result = await invoke<ChatMessage[]>('get_chat_history', {
-    pluginName,
-    cliSessionId,
-  });
+  const backend = getBackend();
+  const result = await backend.chat.getHistory(pluginName, cliSessionId);
   console.log('[chat.ts] getChatHistory returned', result.length, 'messages:', result);
-  return result;
+  return result as ChatMessage[];
 }
 
 /**
@@ -76,14 +74,10 @@ export async function getChatHistoryPaginated(
     offset,
     limit,
   });
-  const result = await invoke<PaginatedChatHistory>('get_chat_history_paginated', {
-    pluginName,
-    cliSessionId,
-    offset,
-    limit,
-  });
+  const backend = getBackend();
+  const result = await backend.chat.getHistoryPaginated(pluginName, cliSessionId, offset, limit);
   console.log('[chat.ts] getChatHistoryPaginated returned:', result);
-  return result;
+  return result as PaginatedChatHistory;
 }
 
 /**
@@ -94,12 +88,10 @@ export async function listCliSessions(
   projectPath: string
 ): Promise<SessionListItem[]> {
   console.log('[chat.ts] listCliSessions called with:', { pluginName, projectPath });
-  const result = await invoke<SessionListItem[]>('list_cli_sessions', {
-    pluginName,
-    projectPath,
-  });
+  const backend = getBackend();
+  const result = await backend.chat.listSessions(pluginName, projectPath);
   console.log('[chat.ts] listCliSessions returned', result.length, 'sessions:', result);
-  return result;
+  return result as SessionListItem[];
 }
 
 /**
@@ -109,10 +101,8 @@ export async function startChatSession(
   projectId: string,
   pluginName: string
 ): Promise<ChatSessionInfo> {
-  return invoke<ChatSessionInfo>('start_chat_session', {
-    projectId,
-    pluginName,
-  });
+  const backend = getBackend();
+  return backend.chat.startSession(projectId, pluginName) as Promise<ChatSessionInfo>;
 }
 
 /**
@@ -125,11 +115,6 @@ export async function sendChatMessage(
   projectPath: string,
   message: string
 ): Promise<void> {
-  return invoke('send_chat_message', {
-    sessionId,
-    pluginName,
-    cliSessionId,
-    projectPath,
-    message,
-  });
+  const backend = getBackend();
+  return backend.chat.sendMessage(sessionId, pluginName, cliSessionId, projectPath, message);
 }
