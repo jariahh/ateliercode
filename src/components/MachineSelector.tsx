@@ -37,10 +37,8 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Don't render if not in web mode and not connected to server
-  if (!webMode && connectionState !== 'authenticated') {
-    return null;
-  }
+  // In Tauri mode, always show (local machine is always available)
+  // In web mode, always show (to prompt sign in or show machines)
 
   // In web mode, show even if not authenticated (will show "Sign in to see machines")
   const isCloudSelected = selectedMachineId === CLOUD_MACHINE_ID;
