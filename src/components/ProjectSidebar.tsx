@@ -1,54 +1,47 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, FolderOpen, Plus, Home } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FolderOpen, Plus, Home, Settings, Cloud } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
-import { invoke } from '@tauri-apps/api/core';
+import { useProjectActivityStore, startActivityCleanup, stopActivityCleanup } from '../stores/projectActivityStore';
+import { useMachineStore } from '../stores/machineStore';
+import MachineSelector from './MachineSelector';
 
 export default function ProjectSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeProjects, setActiveProjects] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const location = useLocation();
   const projects = useProjectStore((state) => state.projects);
+
+  // Subscribe to project activity store for real-time updates
+  // We subscribe to activities to trigger re-renders when the Map changes
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const activities = useProjectActivityStore((state) => state.activities);
+  const hasActivity = useProjectActivityStore((state) => state.hasActivity);
+
+  // Machine store for multi-machine support
+  const connectionState = useMachineStore((state) => state.connectionState);
+  const isRemoteMode = useMachineStore((state) => state.isRemoteMode);
+  const getSelectedMachine = useMachineStore((state) => state.getSelectedMachine);
 
   // Get current project ID from URL
   const currentProjectId = location.pathname.startsWith('/workspace/')
     ? location.pathname.split('/')[2]
     : null;
 
-  // Poll for project activity status
+  // Start/stop the activity cleanup interval
   useEffect(() => {
-    const checkActivity = async () => {
-      const newActiveProjects = new Set<string>();
+    startActivityCleanup();
+    return () => stopActivityCleanup();
+  }, []);
 
-      for (const project of projects) {
-        try {
-          const hasActivity = await invoke<boolean>('has_recent_activity', {
-            projectId: project.id,
-          });
-
-          console.log('[ProjectSidebar] Activity check for', project.name, ':', hasActivity);
-
-          if (hasActivity) {
-            newActiveProjects.add(project.id);
-          }
-        } catch (error) {
-          console.error('Failed to check activity for project:', project.id, error);
-        }
-      }
-
-      console.log('[ProjectSidebar] Active projects:', Array.from(newActiveProjects));
-      setActiveProjects(newActiveProjects);
-    };
-
-    // Check immediately
-    checkActivity();
-
-    // Then check every 5 seconds
-    const interval = setInterval(checkActivity, 5000);
-
+  // Force re-render every second to update activity indicators as they expire
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
     return () => clearInterval(interval);
-  }, [projects]);
+  }, []);
 
   const handleProjectClick = (projectId: string) => {
     navigate(`/workspace/${projectId}`);
@@ -74,7 +67,16 @@ export default function ProjectSidebar() {
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-base-300">
             {!isCollapsed && (
-              <h2 className="text-sm font-semibold text-base-content">Projects</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-base-content">Projects</h2>
+                {/* Remote mode indicator */}
+                {isRemoteMode() && (
+                  <span className="badge badge-info badge-xs gap-1">
+                    <Cloud className="w-3 h-3" />
+                    {getSelectedMachine()?.name || 'Remote'}
+                  </span>
+                )}
+              </div>
             )}
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
@@ -88,6 +90,11 @@ export default function ProjectSidebar() {
               )}
             </button>
           </div>
+
+          {/* Machine Selector (only shown when connected to server) */}
+          {connectionState === 'authenticated' && (
+            <MachineSelector isCollapsed={isCollapsed} />
+          )}
 
           {/* Navigation Items */}
           <div className="flex-1 overflow-y-auto p-2">
@@ -117,6 +124,20 @@ export default function ProjectSidebar() {
             >
               <Plus className="w-5 h-5 flex-shrink-0" />
               {!isCollapsed && <span className="text-sm font-medium">New Project</span>}
+            </button>
+
+            {/* Settings Button */}
+            <button
+              onClick={() => navigate('/settings')}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors mt-1 ${
+                location.pathname === '/settings'
+                  ? 'bg-primary text-primary-content'
+                  : 'hover:bg-base-300'
+              }`}
+              title="Settings"
+            >
+              <Settings className="w-5 h-5 flex-shrink-0" />
+              {!isCollapsed && <span className="text-sm font-medium">Settings</span>}
             </button>
 
             {/* Divider */}
@@ -182,7 +203,7 @@ export default function ProjectSidebar() {
                     )}
                     {/* Activity indicator - always visible */}
                     <div className="flex-shrink-0">
-                      {activeProjects.has(project.id) ? (
+                      {hasActivity(project.id) ? (
                         <span className="flex h-3 w-3">
                           <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-success opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-3 w-3 bg-success"></span>

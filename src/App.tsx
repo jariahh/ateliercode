@@ -1,13 +1,25 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import ProjectWizard from './pages/ProjectWizard';
 import Workspace from './pages/Workspace';
+import Settings from './pages/Settings';
 import ThemeSelector from './components/ThemeSelector';
 import ProjectSidebar from './components/ProjectSidebar';
 import ErrorBoundary from './components/ErrorBoundary';
+import { initServerConnection } from './services/serverConnection';
 
 function App() {
   const currentYear = new Date().getFullYear();
+
+  // Initialize server connection on app startup (optional, non-blocking)
+  useEffect(() => {
+    // Attempt to connect to server in background
+    // This is completely optional - app works without it
+    initServerConnection().catch((err) => {
+      console.log('[App] Server connection not available:', err);
+    });
+  }, []);
 
   return (
     <ErrorBoundary>
@@ -22,6 +34,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/wizard" element={<ProjectWizard />} />
               <Route path="/workspace/:id" element={<Workspace />} />
+              <Route path="/settings" element={<Settings />} />
 
               {/* Redirect any unknown routes to home */}
               <Route path="*" element={<Navigate to="/" replace />} />

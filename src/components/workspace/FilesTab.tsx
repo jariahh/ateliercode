@@ -22,7 +22,7 @@ import {
 import { useHotkeys } from 'react-hotkeys-hook';
 import Editor from '@monaco-editor/react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { readProjectFiles, readFileContent, type FileNode } from '../../api/files';
+import { readProjectFiles, readFileContent, getFolderChildren, getGitStatus, type FileNode, type GitFileStatus } from '../../api/files';
 
 // File type icons mapping
 const getFileIcon = (fileName: string) => {
@@ -212,14 +212,57 @@ function HighlightedText({ text, query }: HighlightedTextProps) {
   );
 }
 
+// Git status color mapping
+const getGitStatusColor = (status: GitFileStatus['status'] | undefined) => {
+  switch (status) {
+    case 'modified':
+      return 'text-warning';
+    case 'added':
+    case 'untracked':
+      return 'text-success';
+    case 'deleted':
+      return 'text-error';
+    case 'renamed':
+    case 'copied':
+      return 'text-info';
+    case 'conflict':
+      return 'text-error font-bold';
+    default:
+      return '';
+  }
+};
+
+const getGitStatusIndicator = (status: GitFileStatus['status'] | undefined) => {
+  switch (status) {
+    case 'modified':
+      return 'M';
+    case 'added':
+      return 'A';
+    case 'deleted':
+      return 'D';
+    case 'renamed':
+      return 'R';
+    case 'untracked':
+      return 'U';
+    case 'copied':
+      return 'C';
+    case 'conflict':
+      return '!';
+    default:
+      return null;
+  }
+};
+
 // File tree item component
 interface FileTreeItemProps {
   node: FileNodeWithContent;
   level: number;
   selectedId: string | null;
   expandedIds: Set<string>;
+  loadingIds: Set<string>;
+  gitStatus: Map<string, GitFileStatus['status']>;
   onSelect: (node: FileNodeWithContent) => void;
-  onToggle: (id: string) => void;
+  onToggle: (id: string, node: FileNodeWithContent) => void;
   searchQuery?: string;
 }
 
@@ -228,6 +271,8 @@ function FileTreeItem({
   level,
   selectedId,
   expandedIds,
+  loadingIds,
+  gitStatus,
   onSelect,
   onToggle,
   searchQuery = '',
@@ -235,6 +280,14 @@ function FileTreeItem({
   const isExpanded = expandedIds.has(node.id);
   const isSelected = selectedId === node.id;
   const isFolder = node.type === 'folder';
+  const isLoading = loadingIds.has(node.id);
+  const hasChildren = node.hasChildren || (node.children && node.children.length > 0);
+
+  // Check git status for this file
+  const normalizedPath = node.path.replace(/\\/g, '/');
+  const fileGitStatus = gitStatus.get(normalizedPath);
+  const statusColor = getGitStatusColor(fileGitStatus);
+  const statusIndicator = getGitStatusIndicator(fileGitStatus);
 
   return (
     <div>
@@ -245,20 +298,23 @@ function FileTreeItem({
         style={{ paddingLeft: `${level * 16 + 8}px` }}
         onClick={() => {
           if (isFolder) {
-            onToggle(node.id);
+            onToggle(node.id, node);
           }
           onSelect(node);
         }}
       >
-        {isFolder && (
+        {isFolder && hasChildren && (
           <span className="flex-shrink-0">
-            {isExpanded ? (
+            {isLoading ? (
+              <span className="loading loading-spinner loading-xs"></span>
+            ) : isExpanded ? (
               <ChevronDown className="w-4 h-4 text-base-content/50" />
             ) : (
               <ChevronRight className="w-4 h-4 text-base-content/50" />
             )}
           </span>
         )}
+        {isFolder && !hasChildren && <span className="w-4" />}
         {!isFolder && <span className="w-4" />}
 
         <span className="flex-shrink-0">
@@ -273,9 +329,16 @@ function FileTreeItem({
           )}
         </span>
 
-        <span className="text-sm truncate">
+        <span className={`text-sm truncate flex-1 ${statusColor}`}>
           <HighlightedText text={node.name} query={searchQuery} />
         </span>
+
+        {/* Git status indicator */}
+        {statusIndicator && (
+          <span className={`text-xs font-mono ${statusColor} flex-shrink-0`} title={fileGitStatus}>
+            {statusIndicator}
+          </span>
+        )}
       </div>
 
       {isFolder && isExpanded && node.children && (
@@ -287,6 +350,8 @@ function FileTreeItem({
               level={level + 1}
               selectedId={selectedId}
               expandedIds={expandedIds}
+              loadingIds={loadingIds}
+              gitStatus={gitStatus}
               onSelect={onSelect}
               onToggle={onToggle}
               searchQuery={searchQuery}
@@ -478,6 +543,8 @@ export default function FilesTab({ projectId }: FilesTabProps) {
   const [fileTree, setFileTree] = useState<FileNodeWithContent[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileNodeWithContent | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  const [gitStatus, setGitStatus] = useState<Map<string, GitFileStatus['status']>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [isLoadingTree, setIsLoadingTree] = useState(false);
@@ -545,8 +612,22 @@ export default function FilesTab({ projectId }: FilesTabProps) {
       setError(null);
 
       try {
-        const files = await readProjectFiles(projectId);
+        // Load files and git status in parallel
+        const [files, status] = await Promise.all([
+          readProjectFiles(projectId),
+          getGitStatus(projectId),
+        ]);
+
         setFileTree(files as FileNodeWithContent[]);
+
+        // Convert git status array to a Map for quick lookups
+        const statusMap = new Map<string, GitFileStatus['status']>();
+        for (const file of status) {
+          // Normalize path separators for comparison
+          const normalizedPath = file.path.replace(/\\/g, '/');
+          statusMap.set(normalizedPath, file.status);
+        }
+        setGitStatus(statusMap);
       } catch (err) {
         console.error('Failed to load project files:', err);
         const errorMessage = err instanceof Error ? err.message : 'Failed to load files';
@@ -561,14 +642,58 @@ export default function FilesTab({ projectId }: FilesTabProps) {
     loadFiles();
   }, [projectId]);
 
-  const handleToggle = (id: string) => {
+  // Helper function to update children in the file tree
+  const updateNodeChildren = (
+    nodes: FileNodeWithContent[],
+    nodeId: string,
+    children: FileNodeWithContent[]
+  ): FileNodeWithContent[] => {
+    return nodes.map((node) => {
+      if (node.id === nodeId) {
+        return { ...node, children };
+      }
+      if (node.children) {
+        return { ...node, children: updateNodeChildren(node.children, nodeId, children) };
+      }
+      return node;
+    });
+  };
+
+  const handleToggle = async (id: string, node: FileNodeWithContent) => {
+    // If collapsing, just toggle the expanded state
+    if (expandedIds.has(id)) {
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      return;
+    }
+
+    // If expanding and children not loaded, fetch them
+    if (node.type === 'folder' && !node.children && node.hasChildren && projectId) {
+      setLoadingIds((prev) => new Set(prev).add(id));
+
+      try {
+        const children = await getFolderChildren(projectId, node.path);
+        // Update the file tree with the loaded children
+        setFileTree((prev) => updateNodeChildren(prev, id, children as FileNodeWithContent[]));
+      } catch (err) {
+        console.error('Failed to load folder children:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load folder contents');
+      } finally {
+        setLoadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    }
+
+    // Expand the folder
     setExpandedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      next.add(id);
       return next;
     });
   };
@@ -735,6 +860,8 @@ export default function FilesTab({ projectId }: FilesTabProps) {
                     level={0}
                     selectedId={selectedFile?.id || null}
                     expandedIds={expandedIds}
+                    loadingIds={loadingIds}
+                    gitStatus={gitStatus}
                     onSelect={handleSelect}
                     onToggle={handleToggle}
                     searchQuery={debouncedSearchQuery}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Sparkles, FolderOpen, Loader2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { useBackend } from '../services/backend';
 import { useProjectStore } from '../stores/projectStore';
 import type { AgentType, CreateProjectInput } from '../types/project';
 import type { ProjectAnalysisResult } from '../types/tauri';
@@ -38,6 +38,7 @@ const EXISTING_PROJECT_STEPS = [
 export default function ProjectWizard() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const backend = useBackend();
   const mode = searchParams.get('mode') === 'existing' ? 'existing' : 'new';
   const createProject = useProjectStore((state) => state.createProject);
   const isLoading = useProjectStore((state) => state.isLoading);
@@ -131,17 +132,13 @@ export default function ProjectWizard() {
 
     try {
       // First, do basic directory analysis for file stats and git detection
-      const basicAnalysis = await invoke<ProjectAnalysisResult>('analyze_project_directory', {
-        path: formData.path,
-      });
+      const basicAnalysis = await backend.projects.analyze(formData.path);
       setAiAnalysis(basicAnalysis);
       updateFormData('initGit', !basicAnalysis.has_git);
 
       // Then use the same AI generation logic as "Regenerate with AI" in settings
       // This provides better, more contextual names and descriptions
-      const aiDetails = await invoke<{ name: string; description: string }>('generate_project_details', {
-        projectPath: formData.path,
-      });
+      const aiDetails = await backend.projects.generateDetails(formData.path);
 
       // Update with AI-generated name and description
       updateFormData('name', aiDetails.name);
@@ -157,9 +154,7 @@ export default function ProjectWizard() {
       console.error('Failed to analyze project with AI:', error);
       // Fallback to basic analysis if AI fails
       try {
-        const basicAnalysis = await invoke<ProjectAnalysisResult>('analyze_project_directory', {
-          path: formData.path,
-        });
+        const basicAnalysis = await backend.projects.analyze(formData.path);
         setAiAnalysis(basicAnalysis);
         updateFormData('name', basicAnalysis.suggested_name);
         updateFormData('description', basicAnalysis.suggested_description);

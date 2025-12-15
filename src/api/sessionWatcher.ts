@@ -8,10 +8,21 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
 // Types for the new plugin-based implementation
 export interface HistoryMessage {
-  role: string;
-  content: any;
-  timestamp?: string;
-  // Add other relevant fields from your history message structure
+  id: string;              // Unique message ID from plugin (stable)
+  role: 'user' | 'assistant';
+  content: string;         // Always a string
+  timestamp: number;       // Unix timestamp in SECONDS
+  metadata?: {
+    // Common fields
+    model?: string;
+    // Tool message fields
+    is_tool_message?: string;  // "true" or "false"
+    is_pending?: string;
+    is_error?: string;
+    tool_name?: string;
+    tool_input?: string;
+    tool_result?: string;
+  };
 }
 
 /** An option in a multiple choice question */

@@ -543,6 +543,9 @@ pub struct FileNode {
     pub size: Option<u64>,
     pub modified: Option<i64>,
     pub children: Option<Vec<FileNode>>,
+    /// Indicates if folder has children (for lazy loading UI)
+    #[serde(rename = "hasChildren")]
+    pub has_children: Option<bool>,
 }
 
 /// Read project files and return file tree structure
@@ -644,7 +647,7 @@ pub async fn read_project_files(
     Ok(root_nodes)
 }
 
-/// Build a FileNode from a path, optionally loading children for folders
+/// Build a FileNode from a path (lazy loading - doesn't load children)
 fn build_file_node(path: &Path, root_path: &Path) -> Option<FileNode> {
     let metadata = match fs::metadata(path) {
         Ok(m) => m,
@@ -682,9 +685,10 @@ fn build_file_node(path: &Path, root_path: &Path) -> Option<FileNode> {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64);
 
-    // For folders, recursively load children
-    let children = if metadata.is_dir() {
-        Some(load_folder_children(path, root_path))
+    // For folders, check if they have children (for lazy loading indicator)
+    // Don't actually load children - that will be done on-demand
+    let has_children = if metadata.is_dir() {
+        Some(folder_has_children(path, root_path))
     } else {
         None
     };
@@ -696,8 +700,37 @@ fn build_file_node(path: &Path, root_path: &Path) -> Option<FileNode> {
         node_type: node_type.to_string(),
         size,
         modified,
-        children,
+        children: None, // Children loaded lazily via get_folder_children
+        has_children,
     })
+}
+
+/// Quick check if a folder has any visible children (for lazy loading UI)
+fn folder_has_children(folder_path: &Path, root_path: &Path) -> bool {
+    let walker = WalkBuilder::new(folder_path)
+        .hidden(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .ignore(true)
+        .max_depth(Some(1))
+        .build();
+
+    for entry in walker {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            // Skip the folder itself
+            if path == folder_path {
+                continue;
+            }
+            // Skip .git directory
+            if path.file_name().and_then(|s| s.to_str()) == Some(".git") {
+                continue;
+            }
+            // Found at least one child
+            return true;
+        }
+    }
+    false
 }
 
 /// Load children for a folder, respecting .gitignore
@@ -747,6 +780,137 @@ fn load_folder_children(folder_path: &Path, root_path: &Path) -> Vec<FileNode> {
     });
 
     children
+}
+
+/// Get children of a folder (for lazy loading in UI)
+#[tauri::command]
+pub async fn get_folder_children(
+    db: State<'_, Database>,
+    #[allow(non_snake_case)]
+    projectId: String,
+    #[allow(non_snake_case)]
+    folderPath: String,
+) -> Result<Vec<FileNode>, String> {
+    log::info!("Getting folder children for: {} in project: {}", folderPath, projectId);
+
+    // Get project from database to get the root path
+    let project = get_project(db.clone(), projectId.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", projectId))?;
+
+    let root_path = Path::new(&project.root_path);
+    let folder_path = Path::new(&folderPath);
+
+    // Security check: ensure the folder path is within the project root
+    if !folder_path.starts_with(root_path) {
+        return Err(format!("Folder path is outside project root: {}", folderPath));
+    }
+
+    // Check if path exists and is a directory
+    if !folder_path.exists() {
+        return Err(format!("Folder does not exist: {}", folderPath));
+    }
+
+    if !folder_path.is_dir() {
+        return Err(format!("Path is not a folder: {}", folderPath));
+    }
+
+    // Load children
+    let children = load_folder_children(folder_path, root_path);
+
+    log::info!("Loaded {} children for folder: {}", children.len(), folderPath);
+
+    Ok(children)
+}
+
+/// Git file status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitFileStatus {
+    pub path: String,
+    pub status: String, // "modified", "added", "deleted", "renamed", "untracked"
+}
+
+/// Get git status for uncommitted changes in a project
+#[tauri::command]
+pub async fn get_git_status(
+    db: State<'_, Database>,
+    #[allow(non_snake_case)]
+    projectId: String,
+) -> Result<Vec<GitFileStatus>, String> {
+    log::info!("Getting git status for project: {}", projectId);
+
+    // Get project from database to get the root path
+    let project = get_project(db.clone(), projectId.clone())
+        .await?
+        .ok_or_else(|| format!("Project not found: {}", projectId))?;
+
+    let root_path = &project.root_path;
+
+    // Check if .git directory exists
+    let git_dir = Path::new(root_path).join(".git");
+    if !git_dir.exists() {
+        log::info!("Not a git repository: {}", root_path);
+        return Ok(Vec::new());
+    }
+
+    // Run git status --porcelain to get machine-readable output
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain", "-uall"])
+        .current_dir(root_path)
+        .output()
+        .map_err(|e| format!("Failed to run git status: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::warn!("Git status failed: {}", stderr);
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut statuses = Vec::new();
+
+    for line in stdout.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+
+        // Git porcelain format: XY filename
+        // X = index status, Y = worktree status
+        let index_status = line.chars().next().unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let file_path = line[3..].trim();
+
+        // Handle renamed files (format: "R  old -> new")
+        let file_path = if file_path.contains(" -> ") {
+            file_path.split(" -> ").last().unwrap_or(file_path)
+        } else {
+            file_path
+        };
+
+        // Determine the status to show
+        let status = match (index_status, worktree_status) {
+            ('?', '?') => "untracked",
+            ('A', _) => "added",
+            ('D', _) | (_, 'D') => "deleted",
+            ('R', _) => "renamed",
+            ('M', _) | (_, 'M') => "modified",
+            ('C', _) => "copied",
+            ('U', _) | (_, 'U') => "conflict",
+            _ => continue, // Skip unknown statuses
+        };
+
+        // Convert to absolute path
+        let absolute_path = Path::new(root_path).join(file_path);
+
+        statuses.push(GitFileStatus {
+            path: absolute_path.to_string_lossy().to_string(),
+            status: status.to_string(),
+        });
+    }
+
+    log::info!("Found {} uncommitted changes", statuses.len());
+
+    Ok(statuses)
 }
 
 /// Read and return file content

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Wrench, Terminal, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
+import { Terminal, CheckCircle2, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import MessageContent from './MessageContent';
 import type { MessageMetadata } from '../workspace/ChatTab';
 
@@ -9,119 +9,149 @@ interface CollapsibleToolMessageProps {
 }
 
 export default function CollapsibleToolMessage({ content, metadata }: CollapsibleToolMessageProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const maxCollapsedHeight = 150;
-  const [needsCollapse, setNeedsCollapse] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [showDetails, setShowDetails] = useState(false);
 
-  useEffect(() => {
-    if (contentRef.current) {
-      const height = contentRef.current.scrollHeight;
-      setNeedsCollapse(height > maxCollapsedHeight);
-    }
-  }, [content]);
+  // Check if this is a merged tool message from plugin
+  const isToolMessage = metadata?.is_tool_message === 'true';
+  const isPending = metadata?.is_pending === 'true';
+  const isError = metadata?.is_error === 'true';
+  const toolName = metadata?.tool_name || '';
 
-  const isToolUse = metadata?.tool_name || content.includes('🔧 Using tool:') || content.startsWith('Tool:');
-  const isToolResult = metadata?.is_tool_result === 'true' || content.includes('✅ Tool Result:') || content.includes('❌ Tool Error:') || content.includes('Tool Result:');
-  const isError = metadata?.is_error === 'true' || content.includes('❌ Tool Error:');
-
-  if (!isToolUse && !isToolResult) {
+  // If not a tool message, render as regular content
+  if (!isToolMessage) {
     return <MessageContent content={content} />;
   }
 
-  let toolName = metadata?.tool_name || 'Unknown Tool';
-  let displayContent = content;
-  let toolParams: any = null;
+  // Content is just the header: "✓ Bash(description) completed"
+  // Result is stored in metadata.tool_result
+  const resultContent = metadata?.tool_result || '';
 
-  if (isToolUse && content.includes('🔧 Using tool:')) {
-    const lines = content.split('\n');
-    const firstLine = lines[0];
-    const match = firstLine.match(/🔧 Using tool:\s*(.+)/);
-    if (match) {
-      toolName = match[1].trim();
-      displayContent = lines.slice(1).join('\n');
-      try { toolParams = JSON.parse(displayContent); } catch {}
-    }
-  } else if (content.startsWith('Tool:')) {
-    const lines = content.split('\n');
-    const firstLine = lines[0];
-    const match = firstLine.match(/Tool:\s*(.+)/);
-    if (match) {
-      toolName = match[1].trim();
-      displayContent = lines.slice(1).join('\n');
-      try { toolParams = JSON.parse(displayContent); } catch {}
-    }
-  } else if (isToolResult) {
-    const lines = content.split('\n');
-    displayContent = lines.slice(1).join('\n');
+  // Parse tool input from metadata if available
+  let toolInput: Record<string, any> | null = null;
+  if (metadata?.tool_input) {
+    try {
+      toolInput = JSON.parse(metadata.tool_input);
+    } catch {}
   }
 
+  // Get description for display
+  const description = toolInput?.description || '';
+  const command = toolInput?.command || '';
+
+  // Determine status icon and color
+  const getStatusDisplay = () => {
+    if (isPending) {
+      return {
+        icon: <Clock className="w-3.5 h-3.5 animate-pulse" />,
+        color: 'text-warning',
+        label: 'Running'
+      };
+    }
+    if (isError) {
+      return {
+        icon: <Terminal className="w-3.5 h-3.5" />,
+        color: 'text-error',
+        label: 'Failed'
+      };
+    }
+    return {
+      icon: <CheckCircle2 className="w-3.5 h-3.5" />,
+      color: 'text-success',
+      label: 'Completed'
+    };
+  };
+
+  const status = getStatusDisplay();
+
+  // Format the display header
+  const getDisplayHeader = () => {
+    if (toolName === 'Bash' && description) {
+      return `${toolName}(${description})`;
+    }
+    if (toolName) {
+      return toolName;
+    }
+    // Fallback: extract from content
+    const match = content.match(/[✓❌⏳]\s*(.+?)\s*(completed|failed|running)/);
+    return match ? match[1] : 'Tool';
+  };
+
   return (
-    <div className="space-y-2 border-l-2 border-info/30 pl-3">
-      <div className={`flex items-center gap-2 text-sm font-semibold ${isError ? 'text-error' : isToolResult ? 'text-success' : 'text-info'}`}>
-        {isToolUse ? (
-          <>
-            <Wrench className="w-4 h-4" />
-            <span>{toolName}</span>
-          </>
-        ) : isError ? (
-          <>
-            <Terminal className="w-4 h-4" />
-            <span>Error</span>
-          </>
-        ) : (
-          <>
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Result</span>
-          </>
-        )}
+    <div className="space-y-1">
+      {/* Compact header */}
+      <div className={`flex items-center gap-2 text-xs ${status.color}`}>
+        {status.icon}
+        <span className="font-medium">{getDisplayHeader()}</span>
+        <span className="text-base-content/50">{status.label}</span>
       </div>
 
-      <div className="relative">
-        <div
-          ref={contentRef}
-          className={`overflow-hidden transition-all duration-300 ${
-            !isExpanded && needsCollapse ? 'max-h-[150px]' : ''
-          }`}
-          style={!isExpanded && needsCollapse ? { maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)' } : {}}
-        >
-          {toolParams ? (
-            <div className="text-xs bg-base-300/50 p-2 rounded space-y-1">
-              {Object.entries(toolParams).map(([key, value]) => (
-                <div key={key} className="flex gap-2">
-                  <span className="text-base-content/60 font-mono">{key}:</span>
-                  <span className="text-base-content font-mono flex-1 break-all">
-                    {typeof value === 'string' ? value : JSON.stringify(value)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <pre className="text-xs bg-base-300/50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-words font-mono">
-              {displayContent.trim()}
-            </pre>
-          )}
-        </div>
-
-        {needsCollapse && (
+      {/* Expandable details - always show for tool messages */}
+      {(isToolMessage || command || resultContent || (toolInput && Object.keys(toolInput).length > 0)) && (
+        <div>
           <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="mt-2 btn btn-xs btn-ghost gap-1"
+            onClick={() => setShowDetails(!showDetails)}
+            className="flex items-center gap-1 text-xs text-base-content/50 hover:text-base-content/80 transition-colors"
           >
-            {isExpanded ? (
-              <>
-                <ChevronUp className="w-3 h-3" />
-                <span>Show Less</span>
-              </>
+            {showDetails ? (
+              <ChevronUp className="w-3 h-3" />
             ) : (
-              <>
-                <ChevronDown className="w-3 h-3" />
-                <span>Show More</span>
-              </>
+              <ChevronDown className="w-3 h-3" />
+            )}
+            <span>Details</span>
+            {!showDetails && resultContent && (
+              <span className="text-base-content/30 truncate max-w-[300px] font-mono ml-1">
+                {resultContent.split('\n')[0].substring(0, 50)}
+                {resultContent.length > 50 ? '...' : ''}
+              </span>
             )}
           </button>
-        )}
-      </div>
+
+          {showDetails && (
+            <div className="mt-2 space-y-2">
+              {/* Command (for Bash) */}
+              {command && (
+                <div>
+                  <div className="text-xs text-base-content/50 mb-1">Command:</div>
+                  <pre className="text-xs bg-base-300/50 p-2 rounded font-mono overflow-x-auto whitespace-pre-wrap break-all text-base-content/80">
+                    {command}
+                  </pre>
+                </div>
+              )}
+
+              {/* Other tool params (non-Bash) */}
+              {!command && toolInput && Object.keys(toolInput).length > 0 && (
+                <div>
+                  <div className="text-xs text-base-content/50 mb-1">Parameters:</div>
+                  <div className="text-xs bg-base-300/50 p-2 rounded space-y-1">
+                    {Object.entries(toolInput).map(([key, value]) => (
+                      <div key={key} className="flex gap-2">
+                        <span className="text-base-content/50 font-mono">{key}:</span>
+                        <span className="text-base-content/80 font-mono flex-1 break-all">
+                          {typeof value === 'string' ? value : JSON.stringify(value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Result/Output */}
+              {resultContent && (
+                <div>
+                  <div className="text-xs text-base-content/50 mb-1">
+                    {isError ? 'Error:' : 'Result:'}
+                  </div>
+                  <pre className={`text-xs p-2 rounded font-mono overflow-x-auto whitespace-pre-wrap break-words ${
+                    isError ? 'bg-error/10 text-error' : 'bg-base-300/50 text-base-content/80'
+                  }`}>
+                    {resultContent}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

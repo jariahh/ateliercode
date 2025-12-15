@@ -6,10 +6,21 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export interface ChatMessage {
+  id: string;              // Unique message ID from plugin (stable)
   role: 'user' | 'assistant';
   content: string;
-  timestamp?: number;
-  metadata?: Record<string, string>;
+  timestamp: number;       // Unix timestamp in SECONDS
+  metadata?: {
+    // Common fields
+    model?: string;
+    // Tool message fields
+    is_tool_message?: string;  // "true" or "false"
+    is_pending?: string;
+    is_error?: string;
+    tool_name?: string;
+    tool_input?: string;
+    tool_result?: string;
+  };
 }
 
 export interface SessionListItem {

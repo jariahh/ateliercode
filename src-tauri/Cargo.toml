@@ -36,6 +36,7 @@ notify = "6.0"
 walkdir = "2.4"
 ignore = "0.4"
 dirs = "5.0"
+hostname = "0.4"
 
 # Process Management
 which = "5.0"
@@ -44,7 +45,7 @@ portable-pty = "0.8"
 strip-ansi-escapes = "0.2"
 
 # AI Integration
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "multipart"] }
 futures = "0.3"
 async-trait = "0.1"
 

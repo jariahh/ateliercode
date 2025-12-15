@@ -1,41 +1,114 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, User, Bot, Loader2, Sparkles, Power, PowerOff, History, Terminal, CheckCircle2, ChevronDown, ChevronUp, Wrench } from 'lucide-react';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import * as chatApi from '../../api/chat';
+import { Send, Bot, Loader2, Sparkles, Power, PowerOff, History, X, Mic } from 'lucide-react';
+import { Panel, PanelGroup } from 'react-resizable-panels';
 import * as agentSessionApi from '../../api/agentSession';
 import * as pluginChatApi from '../../lib/chat';
-import * as sessionWatcher from '../../api/sessionWatcher';
 import type { UserPrompt } from '../../api/sessionWatcher';
-import { parseAskUserQuestion } from '../../lib/parseAskUserQuestion';
 import type { ChatMessage as BackendChatMessage } from '../../types/tauri';
 import type { AgentSession } from '../../api/agentSession';
 import * as sessionPolling from '../../services/sessionPollingManager';
+import * as sessionWatcherManager from '../../services/sessionWatcherManager';
+import { useBackend } from '../../services/backend';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useChatTabStore } from '../../stores/chatTabStore';
-import MessageActions from '../chat/MessageActions';
+import { useSettingsStore } from '../../stores/settingsStore';
 import QuickActions from '../chat/QuickActions';
-import StreamingMessage from '../chat/StreamingMessage';
 import MessageSkeleton from '../chat/MessageSkeleton';
 import MessageContent from '../chat/MessageContent';
 import SessionHistoryModal from '../chat/SessionHistoryModal';
 import VirtualizedMessageList from '../chat/VirtualizedMessageList';
 import UserPromptDialog from '../chat/UserPromptDialog';
 import ChatTabBar from '../chat/ChatTabBar';
+import VoiceRecordingModal from '../chat/VoiceRecordingModal';
+
+// Dynamic processing message generator - creates thousands of unique sayings
+const SAYING_VERBS = [
+  // Atelier/craft verbs
+  "Crafting", "Sculpting", "Forging", "Weaving", "Carving", "Polishing", "Molding",
+  "Sketching", "Painting", "Etching", "Glazing", "Tempering", "Threading", "Gilding",
+  // Tech verbs
+  "Compiling", "Parsing", "Debugging", "Optimizing", "Indexing", "Caching", "Rendering",
+  "Deploying", "Syncing", "Merging", "Querying", "Decoding", "Encrypting", "Streaming",
+  // Thoughtful verbs
+  "Contemplating", "Analyzing", "Pondering", "Meditating on", "Evaluating", "Examining",
+  "Investigating", "Researching", "Deliberating on", "Considering", "Reflecting on",
+  // Action verbs
+  "Summoning", "Channeling", "Exploring", "Synthesizing", "Gathering", "Mining",
+  "Hunting for", "Navigating", "Charting", "Discovering", "Unlocking", "Conjuring",
+  // Creative verbs
+  "Composing", "Orchestrating", "Architecting", "Designing", "Imagining", "Dreaming up",
+  "Curating", "Distilling", "Brewing", "Stirring up", "Awakening", "Illuminating",
+];
+
+const SAYING_NOUNS = [
+  // Atelier/craft nouns
+  "the masterpiece", "your solution", "the design", "the blueprint", "the framework",
+  "the pattern", "the details", "the finishing touches", "the architecture", "the structure",
+  // Abstract nouns
+  "possibilities", "ideas", "inspiration", "brilliance", "wisdom", "insights",
+  "creativity", "innovation", "solutions", "answers", "magic", "genius",
+  // Tech nouns
+  "the code", "the logic", "the algorithm", "the data", "the response", "the output",
+  "the matrix", "the pathways", "the connections", "the system", "the components",
+  // Whimsical nouns
+  "the cosmos", "the muse", "the stars", "secrets", "treasures", "diamonds",
+  "the runes", "the spell", "the potion", "the prophecy", "the ancient scrolls",
+];
+
+// Special standalone sayings that don't follow the verb+noun pattern
+const SPECIAL_SAYINGS = [
+  "The artisan is at work...",
+  "Studio session in progress...",
+  "The craftsman ponders...",
+  "Apprentice hard at work...",
+  "Masterpiece loading...",
+  "The workshop hums quietly...",
+  "The guild master thinks...",
+  "Artistry in progress...",
+  "Firing up the kiln...",
+  "Setting up the easel...",
+  "Measuring twice, cutting once...",
+  "Consulting the code oracle...",
+  "Asking the magic 8-ball...",
+  "Reading the tea leaves...",
+  "Thinking deeply...",
+  "Almost there...",
+  "Making progress...",
+  "Working on it...",
+  "Just a moment...",
+  "Hang tight...",
+];
+
+// Generate a random saying
+function getRandomSaying(): string {
+  // 30% chance of special saying, 70% chance of generated saying
+  if (Math.random() < 0.3) {
+    return SPECIAL_SAYINGS[Math.floor(Math.random() * SPECIAL_SAYINGS.length)];
+  }
+
+  const verb = SAYING_VERBS[Math.floor(Math.random() * SAYING_VERBS.length)];
+  const noun = SAYING_NOUNS[Math.floor(Math.random() * SAYING_NOUNS.length)];
+  return `${verb} ${noun}...`;
+}
 
 export type MessageStatus = 'sending' | 'sent' | 'streaming' | 'completed' | 'error';
 
 export interface MessageMetadata {
+  // Common fields
   tokensUsed?: number;
   processingTime?: number;
   model?: string;
   error?: string;
-  type?: string; // 'tool_use' | 'tool_result' | 'summary'
-  tool_name?: string;
-  tool_id?: string;
-  input?: string;
-  tool_use_id?: string;
+
+  // Tool message fields (set by plugins for merged tool messages)
+  is_tool_message?: string;  // "true" if this is a tool message
+  is_pending?: string;       // "true" if tool is still running
+  is_error?: string;         // "true" if tool failed
+  tool_name?: string;        // Name of the tool (Bash, Read, etc.)
+  tool_input?: string;       // JSON string of tool input params
+  tool_result?: string;      // Tool result/output content
 }
 
 export interface ChatMessage {
@@ -52,303 +125,6 @@ export interface ChatTabProps {
   projectId?: string;
 }
 
-// Collapsible Tool Message Component
-interface CollapsibleToolMessageProps {
-  content: string;
-  metadata?: MessageMetadata;
-}
-
-// Fallback component for individual tool messages
-function CollapsibleToolMessage({ content, metadata }: CollapsibleToolMessageProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const maxCollapsedHeight = 150;
-  const [needsCollapse, setNeedsCollapse] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (contentRef.current) {
-      const height = contentRef.current.scrollHeight;
-      setNeedsCollapse(height > maxCollapsedHeight);
-    }
-  }, [content]);
-
-  const isToolUse = metadata?.tool_name || content.includes('🔧 Using tool:') || content.startsWith('Tool:');
-  const isToolResult = metadata?.is_tool_result === 'true' || content.includes('✅ Tool Result:') || content.includes('❌ Tool Error:') || content.includes('Tool Result:');
-  const isError = metadata?.is_error === 'true' || content.includes('❌ Tool Error:');
-
-  if (!isToolUse && !isToolResult) {
-    return <MessageContent content={content} />;
-  }
-
-  let toolName = metadata?.tool_name || 'Unknown Tool';
-  let displayContent = content;
-  let toolParams: any = null;
-
-  if (isToolUse && content.includes('🔧 Using tool:')) {
-    const lines = content.split('\n');
-    const firstLine = lines[0];
-    const match = firstLine.match(/🔧 Using tool:\s*(.+)/);
-    if (match) {
-      toolName = match[1].trim();
-      displayContent = lines.slice(1).join('\n');
-      try { toolParams = JSON.parse(displayContent); } catch {}
-    }
-  } else if (content.startsWith('Tool:')) {
-    const lines = content.split('\n');
-    const firstLine = lines[0];
-    const match = firstLine.match(/Tool:\s*(.+)/);
-    if (match) {
-      toolName = match[1].trim();
-      displayContent = lines.slice(1).join('\n');
-      try { toolParams = JSON.parse(displayContent); } catch {}
-    }
-  } else if (isToolResult) {
-    const lines = content.split('\n');
-    displayContent = lines.slice(1).join('\n');
-  }
-
-  return (
-    <div className="space-y-2 border-l-2 border-info/30 pl-3">
-      <div className={`flex items-center gap-2 text-sm font-semibold ${isError ? 'text-error' : isToolResult ? 'text-success' : 'text-info'}`}>
-        {isToolUse ? (
-          <>
-            <Wrench className="w-4 h-4" />
-            <span>{toolName}</span>
-          </>
-        ) : isError ? (
-          <>
-            <Terminal className="w-4 h-4" />
-            <span>Error</span>
-          </>
-        ) : (
-          <>
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Result</span>
-          </>
-        )}
-      </div>
-
-      <div className="relative">
-        <div
-          ref={contentRef}
-          className={`overflow-hidden transition-all duration-300 ${
-            !isExpanded && needsCollapse ? 'max-h-[150px]' : ''
-          }`}
-          style={!isExpanded && needsCollapse ? { maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)' } : {}}
-        >
-          {toolParams ? (
-            <div className="text-xs bg-base-300/50 p-2 rounded space-y-1">
-              {Object.entries(toolParams).map(([key, value]) => (
-                <div key={key} className="flex gap-2">
-                  <span className="text-base-content/60 font-mono">{key}:</span>
-                  <span className="text-base-content font-mono flex-1 break-all">
-                    {typeof value === 'string' ? value : JSON.stringify(value)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <pre className="text-xs bg-base-300/50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-words font-mono">
-              {displayContent.trim()}
-            </pre>
-          )}
-        </div>
-
-        {needsCollapse && (
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="mt-2 btn btn-xs btn-ghost gap-1"
-          >
-            {isExpanded ? (
-              <>
-                <ChevronUp className="w-3 h-3" />
-                <span>Show Less</span>
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-3 h-3" />
-                <span>Show More</span>
-              </>
-            )}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-interface GroupedToolMessageProps {
-  toolUse?: ChatMessage;
-  toolResult?: ChatMessage;
-}
-
-function GroupedToolMessage({ toolUse, toolResult }: GroupedToolMessageProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [showParams, setShowParams] = useState(false);
-  const maxCollapsedHeight = 150;
-  const [needsCollapse, setNeedsCollapse] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (contentRef.current) {
-      const height = contentRef.current.scrollHeight;
-      setNeedsCollapse(height > maxCollapsedHeight);
-    }
-  }, [toolResult]);
-
-  if (!toolUse && !toolResult) return null;
-
-  // Extract tool name and params from tool use
-  let toolName = 'Unknown Tool';
-  let toolParams: any = null;
-
-  if (toolUse) {
-    const content = toolUse.content;
-    if (content.includes('🔧 Using tool:')) {
-      const match = content.match(/🔧 Using tool:\s*(.+)/);
-      if (match) {
-        toolName = match[1].trim();
-        const jsonStr = content.split('\n').slice(1).join('\n');
-        try { toolParams = JSON.parse(jsonStr); } catch {}
-      }
-    } else if (content.startsWith('Tool:')) {
-      const match = content.match(/Tool:\s*(.+)/);
-      if (match) {
-        toolName = match[1].trim();
-        const jsonStr = content.split('\n').slice(1).join('\n');
-        try { toolParams = JSON.parse(jsonStr); } catch {}
-      }
-    }
-  }
-
-  // Extract result content
-  let resultContent = '';
-  const isError = toolResult?.content.includes('❌ Tool Error:');
-
-  if (toolResult) {
-    const lines = toolResult.content.split('\n');
-    resultContent = lines.slice(1).join('\n').trim();
-  }
-
-  // Get main parameters (exclude less important ones)
-  const mainParams: Record<string, any> = {};
-  const hiddenParams: Record<string, any> = {};
-
-  if (toolParams) {
-    const lessImportant = ['-A', '-B', '-C', '-n', '-i', 'head_limit', 'offset', 'limit', 'dangerouslyDisableSandbox'];
-    Object.entries(toolParams).forEach(([key, value]) => {
-      if (lessImportant.includes(key)) {
-        hiddenParams[key] = value;
-      } else {
-        mainParams[key] = value;
-      }
-    });
-  }
-
-  return (
-    <div className="space-y-2">
-      {/* Tool Header with name and key params */}
-      <div className="flex items-center gap-2 text-sm font-semibold text-info">
-        <Wrench className="w-4 h-4" />
-        <span>{toolName}</span>
-        {Object.keys(mainParams).length > 0 && (
-          <span className="text-xs font-normal text-base-content/60">
-            ({Object.keys(mainParams).slice(0, 2).join(', ')}{Object.keys(mainParams).length > 2 ? '...' : ''})
-          </span>
-        )}
-      </div>
-
-      {/* Main Parameters (always visible if present) */}
-      {Object.keys(mainParams).length > 0 && (
-        <div className="text-xs bg-info/5 border border-info/20 rounded p-2 space-y-1">
-          {Object.entries(mainParams).map(([key, value]) => (
-            <div key={key} className="flex gap-2">
-              <span className="text-info/80 font-mono font-semibold min-w-[80px]">{key}:</span>
-              <span className="text-base-content/80 font-mono flex-1 break-all">
-                {typeof value === 'string' ? `"${value}"` : JSON.stringify(value)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Hidden Parameters (collapsible) */}
-      {Object.keys(hiddenParams).length > 0 && (
-        <div>
-          <button
-            onClick={() => setShowParams(!showParams)}
-            className="text-xs text-base-content/50 hover:text-base-content/80 flex items-center gap-1"
-          >
-            {showParams ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            <span>{Object.keys(hiddenParams).length} more parameter{Object.keys(hiddenParams).length > 1 ? 's' : ''}</span>
-          </button>
-          {showParams && (
-            <div className="text-xs bg-base-300/30 rounded p-2 space-y-1 mt-1">
-              {Object.entries(hiddenParams).map(([key, value]) => (
-                <div key={key} className="flex gap-2">
-                  <span className="text-base-content/60 font-mono">{key}:</span>
-                  <span className="text-base-content/80 font-mono">{typeof value === 'string' ? `"${value}"` : JSON.stringify(value)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tool Result */}
-      {toolResult && (
-        <div>
-          <div className={`flex items-center gap-2 text-sm font-semibold mb-2 ${isError ? 'text-error' : 'text-success'}`}>
-            {isError ? (
-              <>
-                <Terminal className="w-4 h-4" />
-                <span>Error</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Result</span>
-              </>
-            )}
-          </div>
-
-          <div className="relative">
-            <div
-              ref={contentRef}
-              className={`overflow-hidden transition-all duration-300 ${
-                !isExpanded && needsCollapse ? 'max-h-[150px]' : ''
-              }`}
-              style={!isExpanded && needsCollapse ? { maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)' } : {}}
-            >
-              <pre className="text-xs bg-base-300/50 border border-base-content/10 p-2 rounded overflow-x-auto whitespace-pre-wrap break-words font-mono">
-                {resultContent}
-              </pre>
-            </div>
-
-            {needsCollapse && (
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="mt-2 btn btn-xs btn-ghost gap-1"
-              >
-                {isExpanded ? (
-                  <>
-                    <ChevronUp className="w-3 h-3" />
-                    <span>Show Less</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-3 h-3" />
-                    <span>Show More</span>
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Helper function to convert backend message to frontend format
 function convertMessage(backendMsg: BackendChatMessage): ChatMessage {
@@ -373,6 +149,9 @@ function convertMessage(backendMsg: BackendChatMessage): ChatMessage {
 }
 
 export default function ChatTab({ projectId }: ChatTabProps) {
+  // Backend abstraction for Tauri/WebRTC
+  const backend = useBackend();
+
   // Tab state - for multi-agent support (MUST be before messages for proper tab isolation)
   const tabs = useChatTabStore((state) => state.tabsByProject.get(projectId || '') || []);
   const activeTab = tabs.find(t => t.is_active) || null;
@@ -390,6 +169,12 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const addMessage = useChatStore((state) => state.addMessage);
   const updateMessage = useChatStore((state) => state.updateMessage);
 
+  // Message queue for pending messages (sent while agent is processing)
+  const queueMessage = useChatStore((state) => state.queueMessage);
+  const getQueuedMessages = useChatStore((state) => state.getQueuedMessages);
+  const flushQueue = useChatStore((state) => state.flushQueue);
+  const dequeueMessage = useChatStore((state) => state.dequeueMessage);
+
   // Debug logging
   console.log('[ChatTab] Rendering with projectId:', projectId, 'messages:', messages.length);
   const [inputValue, setInputValue] = useState('');
@@ -400,7 +185,6 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const activeWatcherRef = useRef<string | null>(null); // Track active watcher by session ID
 
   // Pagination state for history loading
   const [historyOffset, setHistoryOffset] = useState(0);
@@ -410,10 +194,13 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const MESSAGES_PER_PAGE = 50;
 
+  // Processing saying state - dynamically generated messages while AI is thinking
+  const [currentSaying, setCurrentSaying] = useState(() => getRandomSaying());
+
   // Session state - use shared store (keyed by tabId for multi-agent support)
   const activeSession = useSessionStore((state) => state.getActiveSession(activeTabId));
   const setActiveSession = useSessionStore((state) => state.setActiveSession);
-  const [dbSessionId, setDbSessionId] = useState<string | null>(null); // Track the DB session for saving messages
+  // dbSessionId removed - we now use only plugin-based chat history
   // Session history is now loaded on-demand via plugin system in SessionHistoryModal
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
@@ -422,13 +209,17 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const [pendingUserPrompt, setPendingUserPrompt] = useState<UserPrompt | null>(null);
   const skipNextLoadRef = useRef(false); // Flag to skip the next loadData call
 
+  // Voice recording state
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+
   // Tab state - loaded from store (tabs/activeTab/activeTabId already defined at top)
   const loadTabs = useChatTabStore((state) => state.loadTabs);
   const createTab = useChatTabStore((state) => state.createTab);
   const updateTab = useChatTabStore((state) => state.updateTab);
   const setActiveTabInStore = useChatTabStore((state) => state.setActiveTab);
   const closeTab = useChatTabStore((state) => state.closeTab);
-  const markTabActivity = useChatTabStore((state) => state.markTabActivity);
+  // Note: markTabActivity is now handled by sessionWatcherManager
 
   // Get project info
   const projects = useProjectStore((state) => state.projects);
@@ -491,59 +282,28 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     // Set the new tab as active
     await setActiveTabInStore(projectId, tabId);
 
-    // Clear messages for the new tab (will be reloaded if session exists)
-    // Note: We don't clear the old tab's session - it keeps running in background
-    setMessages(tabId, []);
-
-    // If the new tab has an existing CLI session, load its messages
-    if (tab.cli_session_id) {
-      const agentType = tab.agent_type || project?.agent?.type;
-      if (agentType) {
-        const pluginName = agentType.toLowerCase().replace(/\s+/g, '-');
-        console.log(`[ChatTab] Loading messages from plugin: ${pluginName}, session: ${tab.cli_session_id}`);
-
-        try {
-          const history = await pluginChatApi.getChatHistory(pluginName, tab.cli_session_id);
-
-          // Convert plugin history to ChatMessage format
-          const loadedMessages: ChatMessage[] = history.map((msg, index) => {
-            const displayRole = msg.metadata?.type === 'tool_result' ? 'assistant' : (msg.role as 'user' | 'assistant');
-            return {
-              id: msg.id || `loaded-${Date.now()}-${index}`,
-              project_id: projectId,
-              role: displayRole,
-              content: msg.content,
-              timestamp: msg.timestamp || new Date().toISOString(),
-              session_id: tab.cli_session_id || undefined,
-              metadata: msg.metadata,
-            };
-          });
-
-          setMessages(tabId, loadedMessages);
-
-          // Create a display session for this tab (keyed by tabId)
-          const resumedSession: AgentSession = {
-            session_id: tab.cli_session_id,
-            project_id: projectId,
-            agent_type: agentType,
-            status: 'stopped',
-            pid: null,
-            started_at: Date.now() / 1000,
-            last_activity: Date.now() / 1000,
-            claude_session_id: tab.cli_session_id,
-          };
-          setActiveSession(tabId, resumedSession);
-
-          console.log(`[ChatTab] Loaded ${loadedMessages.length} messages for tab`);
-        } catch (err) {
-          console.error('[ChatTab] Failed to load tab messages:', err);
-        }
-      }
-    }
-  }, [projectId, tabs, setActiveTabInStore, setMessages, setActiveSession, project?.agent?.type]);
+    // NOTE: We do NOT clear messages or sessions when switching tabs!
+    // Messages are stored per-tab in chatStore (messagesByTab)
+    // Sessions are stored per-tab in sessionStore (sessionsByTab)
+    // Both stores handle tab isolation automatically.
+    //
+    // This allows:
+    // 1. Fast tab switching without reloading data
+    // 2. Session watchers to continue running in background
+    // 3. Messages to persist when switching back and forth
+    //
+    // The useEffect will handle any necessary loading based on activeSession state.
+  }, [projectId, tabs, setActiveTabInStore]);
 
   const handleTabClose = useCallback(async (tabId: string) => {
     if (!projectId) return;
+
+    // Stop any watchers for sessions in this tab
+    await sessionWatcherManager.stopWatchingForTab(tabId);
+
+    // Stop polling for this tab
+    sessionPolling.stopPolling(tabId);
+
     await closeTab(projectId, tabId);
   }, [projectId, closeTab]);
 
@@ -587,10 +347,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     await updateTab(tabId, { label: newLabel });
   }, [updateTab]);
 
-  // Load chat history and session history on mount or when active session changes
+  // Load chat history from plugin on mount or when active session changes
+  // All chat history now comes from CLI plugins, not from our database
   useEffect(() => {
     const loadData = async () => {
-      console.log('[ChatTab useEffect] loadData called, skipNextLoadRef:', skipNextLoadRef.current, 'dbSessionId:', dbSessionId, 'activeSession:', activeSession?.session_id);
+      console.log('[ChatTab useEffect] loadData called, skipNextLoadRef:', skipNextLoadRef.current, 'activeSession:', activeSession?.session_id);
 
       // Skip if flagged (e.g., when manually loading in handleResumeSession)
       if (skipNextLoadRef.current) {
@@ -608,47 +369,32 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         setIsLoading(true);
         setError(null);
 
-        // Load chat messages - only if we have an active session for this tab
-        if (activeSession) {
-          // Check if this is a CLI-only session (no database record)
-          const isCliOnlySession = !dbSessionId && activeSession.claude_session_id;
+        // Load chat messages from plugin - only if we have an active session with a CLI session ID
+        // Note: activeSession is set when:
+        // 1. User starts a new session (startNewSession)
+        // 2. User resumes a session via History modal (handleResumeCliSession)
+        // It is NOT set just because a tab has a cli_session_id from a previous run
+        if (activeSession && activeSession.claude_session_id) {
+          const pluginName = currentAgentType?.toLowerCase().replace(/\s+/g, '-') || 'claude-code';
+          const cliSessionId = activeSession.claude_session_id;
+          console.log(`[ChatTab useEffect] Loading chat history from plugin: ${pluginName}, session: ${cliSessionId}`);
 
-          if (isCliOnlySession) {
-            // For CLI-only sessions, load from plugin's chat history
-            const pluginName = currentAgentType?.toLowerCase().replace(/\s+/g, '-') || 'claude-code';
-            const cliSessionId = activeSession.claude_session_id;
-            console.log(`[ChatTab useEffect] Loading CLI-only session from plugin: ${pluginName}, session: ${cliSessionId}`);
+          const history = await pluginChatApi.getChatHistory(pluginName, cliSessionId);
+          console.log('[ChatTab useEffect] Loaded', history.length, 'messages from plugin');
 
-            const history = await pluginChatApi.getChatHistory(pluginName, cliSessionId);
-            console.log('[ChatTab useEffect] Loaded', history.length, 'messages from plugin for CLI session', cliSessionId);
+          // Convert plugin history to ChatMessage format
+          const loadedMessages: ChatMessage[] = history.map((msg) => ({
+            id: msg.id,  // Use ID from plugin directly
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content,
+            timestamp: new Date(msg.timestamp * 1000),  // Convert seconds to milliseconds
+            status: 'completed' as const,
+            metadata: msg.metadata as MessageMetadata | undefined,
+          }));
 
-            // Convert plugin history to ChatMessage format
-            const loadedMessages: ChatMessage[] = history.map((msg, index) => {
-              const displayRole = msg.role as 'user' | 'assistant';
-              return {
-                id: `history-${cliSessionId}-${index}`,
-                role: displayRole,
-                content: msg.content,
-                timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-                status: 'completed' as const,
-                metadata: msg.metadata && Object.keys(msg.metadata).length > 0 ? msg.metadata as MessageMetadata : undefined,
-              };
-            });
-
-            console.log('[ChatTab useEffect] Setting messages to:', loadedMessages.length);
-            setMessages(activeTabId, loadedMessages);
-          } else {
-            // For database-backed sessions, use the database lookup
-            const sessionIdToLoad = dbSessionId || activeSession.session_id;
-            const backendMessages = await chatApi.getSessionMessages(sessionIdToLoad);
-            console.log('[ChatTab useEffect] Loaded', backendMessages.length, 'messages for session', sessionIdToLoad, backendMessages);
-
-            const convertedMessages = backendMessages.map(convertMessage);
-            console.log('[ChatTab useEffect] Setting messages to:', convertedMessages);
-            setMessages(activeTabId, convertedMessages);
-          }
+          setMessages(activeTabId, loadedMessages);
         } else {
-          // No active session for this tab - show empty state (don't load project-wide messages)
+          // No active session for this tab - show empty state
           console.log('[ChatTab useEffect] No active session for tab, showing empty state');
           setMessages(activeTabId, []);
         }
@@ -661,9 +407,9 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     };
 
     loadData();
-  }, [projectId, dbSessionId, activeTabId, activeSession, currentAgentType]);
+  }, [projectId, activeTabId, activeSession, currentAgentType]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages or when switching tabs/projects
   useEffect(() => {
     // Use instant scroll to avoid jerky behavior
     const scrollToBottom = () => {
@@ -672,10 +418,18 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       }
     };
 
-    // Single delayed scroll after DOM is rendered
-    const timer = setTimeout(scrollToBottom, 100);
-    return () => clearTimeout(timer);
-  }, [messages.length, isTyping]);
+    // Multiple scroll attempts to handle virtualized list rendering delays
+    // First attempt quickly, then again after list has time to render
+    const timer1 = setTimeout(scrollToBottom, 50);
+    const timer2 = setTimeout(scrollToBottom, 150);
+    const timer3 = setTimeout(scrollToBottom, 300);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+    };
+  }, [messages.length, isTyping, activeTabId, isLoading]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -685,177 +439,41 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     }
   }, [inputValue]);
 
-  // Plugin-based session watcher for real-time updates
+  // Cycle through processing sayings while typing (dynamic generation)
   useEffect(() => {
-    if (!activeSession || !activeSession.claude_session_id || !projectId || !project) {
-      // Clear ref if no session
-      activeWatcherRef.current = null;
-      return;
-    }
+    if (!isTyping) return;
 
-    const pluginName = 'claude-code';
-    const cliSessionId = activeSession.claude_session_id;
-    const projectPath = project.path;
+    // Start with a fresh random saying
+    setCurrentSaying(getRandomSaying());
 
-    // Prevent duplicate watchers for the same session
-    if (activeWatcherRef.current === cliSessionId) {
-      console.log('[ChatTab] Watcher already active for session:', cliSessionId);
-      return;
-    }
+    // Generate a new random saying every 5 seconds
+    const interval = setInterval(() => {
+      setCurrentSaying(getRandomSaying());
+    }, 5000);
 
-    console.log('[ChatTab] Setting up plugin-based watcher for session:', cliSessionId);
-    activeWatcherRef.current = cliSessionId;
+    return () => clearInterval(interval);
+  }, [isTyping]);
 
-    let unsubscribePromise: Promise<() => Promise<void>> | null = null;
-    let unsubscribe: (() => Promise<void>) | null = null;
-    let cleanedUp = false;
+  // Register UI callback for session watcher manager
+  // This handles UI-specific updates like showing user prompt dialogs
+  useEffect(() => {
+    // Set up the UI callback to handle prompts that need component state
+    sessionWatcherManager.setUICallback((tabId, update) => {
+      // Only handle updates for the currently active tab
+      if (tabId !== activeTabId) return;
 
-    // Start watching using the new plugin-based API
-    unsubscribePromise = sessionWatcher.startWatchingSession(
-      pluginName,
-      projectPath,
-      cliSessionId,
-      (update) => {
-        console.log('[ChatTab] Received session update:', update);
-
-        if (update.type === 'NewMessage' && update.message) {
-          const msg = update.message;
-
-          // Create a stable ID based on timestamp and content hash to prevent duplicates
-          // Use a simple hash function for the content
-          const simpleHash = (str: string) => {
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-              const char = str.charCodeAt(i);
-              hash = ((hash << 5) - hash) + char;
-              hash = hash & hash; // Convert to 32bit integer
-            }
-            return Math.abs(hash).toString(36);
-          };
-          const contentHash = simpleHash(msg.content + msg.role + (msg.timestamp || ''));
-          const stableId = `msg-${msg.timestamp}-${contentHash}`;
-
-          // Convert metadata to the right format - handle both old and new format
-          const metadata: MessageMetadata | undefined = msg.metadata ? {
-            type: msg.metadata.type,
-            tool_name: msg.metadata.tool_name,
-            tool_id: msg.metadata.tool_id,
-            tool_use_id: msg.metadata.tool_use_id,
-            input: msg.metadata.input,
-            is_tool_result: msg.metadata.is_tool_result,
-            is_error: msg.metadata.is_error,
-          } : undefined;
-
-          // The role is already correct from the plugin (overridden to 'assistant' for tool messages)
-          const displayRole = msg.role as 'user' | 'assistant';
-
-          // Check if message already exists - use displayRole for comparison
-          const existingMessages = messages || [];
-          const msgTimestamp = msg.timestamp ? msg.timestamp * 1000 : 0;
-
-          // More robust duplicate detection - check by ID first, then by content+timestamp
-          const isDuplicate = existingMessages.some(m => {
-            // Check if IDs match
-            if (m.id === stableId) return true;
-
-            // Check if content and timestamp match (within 100ms tolerance for timing issues)
-            const timeDiff = Math.abs((m.timestamp?.getTime() || 0) - msgTimestamp);
-            return m.content === msg.content &&
-                   m.role === displayRole &&
-                   timeDiff < 100;
-          });
-
-          if (isDuplicate) {
-            console.log('[ChatTab] Skipping duplicate message:', {
-              id: stableId,
-              role: displayRole,
-              contentPreview: msg.content.substring(0, 50)
-            });
-            return;
-          }
-
-          const newMessage: ChatMessage = {
-            id: stableId,
-            role: displayRole,
-            content: msg.content,
-            timestamp: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
-            status: 'completed',
-            metadata,
-          };
-
-          addMessage(activeTabId, newMessage);
-
-          // Reset typing state when we receive an assistant response (for this tab)
-          if (displayRole === 'assistant') {
-            setTyping(activeTabId, false);
-          }
-
-          // Mark tab activity if user isn't actively viewing this tab
-          // This happens when window is not focused, document is hidden, or user is on a different workspace tab
-          // Find the tab corresponding to this session
-          const currentTabs = useChatTabStore.getState().tabsByProject.get(projectId) || [];
-          const sessionTab = currentTabs.find(t => t.cli_session_id === cliSessionId);
-          if (sessionTab && displayRole === 'assistant') {
-            // Mark activity if window is not focused or document is hidden
-            if (document.hidden || !document.hasFocus()) {
-              markTabActivity(sessionTab.id);
-            }
-          }
-
-          // Check if this is an AskUserQuestion tool use - if so, show the prompt UI
-          if (displayRole === 'assistant') {
-            const prompt = parseAskUserQuestion(msg.content);
-            if (prompt) {
-              console.log('[ChatTab] Detected AskUserQuestion in message:', prompt);
-              setPendingUserPrompt(prompt);
-              setIsWaitingForInput(true);
-            }
-          }
-
-          // Save to database to update last_activity timestamp
-          chatApi.saveMessage(projectId, cliSessionId, displayRole, msg.content, metadata ? JSON.stringify(metadata) : undefined)
-            .catch(err => console.error('[ChatTab] Failed to save message to database:', err));
-        } else if (update.type === 'UserPromptRequired' && update.prompt) {
-          console.log('[ChatTab] User prompt required:', update.prompt);
-          setPendingUserPrompt(update.prompt);
-          setIsWaitingForInput(true);
-        } else if (update.type === 'Error') {
-          console.error('[ChatTab] Session watcher error:', update.message);
-        }
+      if (update.type === 'UserPromptRequired' && update.prompt) {
+        console.log('[ChatTab] User prompt required from watcher manager:', update.prompt);
+        setPendingUserPrompt(update.prompt);
+        setIsWaitingForInput(true);
       }
-    );
-
-    unsubscribePromise.then((unsub) => {
-      unsubscribe = unsub;
-      console.log('[ChatTab] Plugin-based watcher started successfully');
-    }).catch((err) => {
-      console.error('[ChatTab] Failed to start plugin-based watcher:', err);
     });
 
-    // Cleanup
+    // Cleanup: remove the callback when component unmounts
     return () => {
-      console.log('[ChatTab] Cleaning up plugin-based watcher for session:', cliSessionId);
-      cleanedUp = true;
-
-      // Clear the active watcher ref
-      if (activeWatcherRef.current === cliSessionId) {
-        activeWatcherRef.current = null;
-      }
-
-      // If unsubscribe is already available, call it immediately
-      if (unsubscribe) {
-        unsubscribe().catch(console.error);
-      } else if (unsubscribePromise) {
-        // If the promise is still pending, wait for it and then unsubscribe
-        // The cleanedUp flag prevents calling unsubscribe twice
-        unsubscribePromise.then(unsub => {
-          if (cleanedUp) {
-            unsub().catch(console.error);
-          }
-        }).catch(console.error);
-      }
+      sessionWatcherManager.setUICallback(null);
     };
-  }, [activeSession, projectId, project]);
+  }, [activeTabId]);
 
   // NOTE: We intentionally do NOT stop sessions when switching tabs.
   // Sessions should continue running in the background so:
@@ -892,7 +510,6 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       console.log('[ChatTab] Session started:', session);
 
       setActiveSession(activeTabId, session);
-      setDbSessionId(session.session_id); // Set the DB session ID for message saving
       setShowSessionHistory(false);
 
       // Update the active tab with the session info
@@ -917,6 +534,14 @@ export default function ChatTab({ projectId }: ChatTabProps) {
               if (activeTab) {
                 updateTab(activeTab.id, { cliSessionId });
               }
+              // Start the watcher through the manager (persists across tab switches)
+              sessionWatcherManager.startWatching(
+                cliSessionId,
+                activeTabId,
+                projectId,
+                normalizedAgentType,
+                project?.path || ''
+              );
               break;
             }
           } catch (err) {
@@ -926,39 +551,19 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       };
       pollForCliSessionId();
 
-      // Save and add system message with session context
+      // Add system message with session context (UI only - no database)
       const systemMessageContent = resumeSessionId
         ? `🔄 Resumed ${currentAgentType} session`
         : `🤖 Started new ${currentAgentType} session`;
 
-      try {
-        const savedMessage = await chatApi.saveMessage(
-          projectId,
-          session.session_id,
-          'assistant',
-          systemMessageContent
-        );
-
-        const systemMessage: ChatMessage = {
-          id: savedMessage.id,
-          role: 'assistant',
-          content: systemMessageContent,
-          timestamp: new Date(savedMessage.timestamp * 1000),
-          status: 'completed',
-        };
-        addMessage(activeTabId, systemMessage);
-      } catch (err) {
-        console.error('[ChatTab] Failed to save system message:', err);
-        // Still add to UI even if save fails
-        const systemMessage: ChatMessage = {
-          id: `system-${Date.now()}`,
-          role: 'assistant',
-          content: systemMessageContent,
-          timestamp: new Date(),
-          status: 'completed',
-        };
-        addMessage(activeTabId, systemMessage);
-      }
+      const systemMessage: ChatMessage = {
+        id: `system-${Date.now()}`,
+        role: 'assistant',
+        content: systemMessageContent,
+        timestamp: new Date(),
+        status: 'completed',
+      };
+      addMessage(activeTabId, systemMessage);
     } catch (err) {
       console.error('Failed to start session:', err);
       setError(`Failed to start agent session: ${err}`);
@@ -971,6 +576,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     if (!activeSession || !projectId) return;
 
     const sessionId = activeSession.session_id;
+    const cliSessionId = activeSession.claude_session_id;
 
     try {
       console.log('[ChatTab] Stopping session:', sessionId);
@@ -979,152 +585,25 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       // Stop polling for this tab's session
       sessionPolling.stopPolling(activeTabId);
 
-      // Save system message with session context before clearing activeSession
-      try {
-        // Use dbSessionId if available (for resumed sessions), otherwise use sessionId
-        const sessionIdToSave = dbSessionId || sessionId;
-        const savedMessage = await chatApi.saveMessage(
-          projectId,
-          sessionIdToSave,
-          'assistant',
-          '⏹️ Session stopped'
-        );
-
-        const systemMessage: ChatMessage = {
-          id: savedMessage.id,
-          role: 'assistant',
-          content: '⏹️ Session stopped',
-          timestamp: new Date(savedMessage.timestamp * 1000),
-          status: 'completed',
-        };
-        addMessage(activeTabId, systemMessage);
-      } catch (err) {
-        console.error('[ChatTab] Failed to save stop message:', err);
-        // Still add to UI even if save fails
-        const systemMessage: ChatMessage = {
-          id: `system-${Date.now()}`,
-          role: 'assistant',
-          content: '⏹️ Session stopped',
-          timestamp: new Date(),
-          status: 'completed',
-        };
-        addMessage(activeTabId, systemMessage);
+      // Stop the watcher for this session
+      if (cliSessionId) {
+        sessionWatcherManager.stopWatching(cliSessionId);
       }
+
+      // Add system message (UI only - no database)
+      const systemMessage: ChatMessage = {
+        id: `system-${Date.now()}`,
+        role: 'assistant',
+        content: '⏹️ Session stopped',
+        timestamp: new Date(),
+        status: 'completed',
+      };
+      addMessage(activeTabId, systemMessage);
 
       setActiveSession(activeTabId, null);
     } catch (err) {
       console.error('Failed to stop session:', err);
       setError(`Failed to stop session: ${err}`);
-    }
-  };
-
-  const handleResumeSession = async (session: DbAgentSession) => {
-    console.log('[ChatTab] Resuming session:', session, 'Agent:', currentAgentType);
-
-    if (!projectId || !currentAgentType) {
-      setError('No project or agent type available');
-      return;
-    }
-
-    setIsStartingSession(true);
-    setError(null);
-
-    try {
-      // Load messages from plugin system if CLI session ID exists, otherwise fallback to database
-      let loadedMessages: ChatMessage[] = [];
-
-      if (session.claude_session_id && currentAgentType) {
-        try {
-          // Load history from CLI via plugin
-          const pluginName = currentAgentType.toLowerCase().replace(/\s+/g, '-');
-          console.log(`[ChatTab] Loading chat history from plugin: ${pluginName}, session: ${session.claude_session_id}`);
-
-          const history = await pluginChatApi.getChatHistory(
-            pluginName,
-            session.claude_session_id
-          );
-
-          console.log(`[ChatTab] Loaded ${history.length} messages from plugin for session ${session.claude_session_id}`);
-
-          // Debug: Check if messages are in chronological order
-          if (history.length > 1) {
-            console.log('[ChatTab] First message timestamp:', history[0].timestamp, 'preview:', history[0].content.substring(0, 30));
-            console.log('[ChatTab] Last message timestamp:', history[history.length - 1].timestamp, 'preview:', history[history.length - 1].content.substring(0, 30));
-          }
-
-          // Convert plugin history to ChatMessage format
-          // Plugin returns messages in file order, we need to reverse to get chronological
-          loadedMessages = history.map((msg, index) => {
-            // Tool results come as user role from API but should display as assistant
-            const displayRole = msg.metadata?.type === 'tool_result' ? 'assistant' : (msg.role as 'user' | 'assistant');
-
-            return {
-              id: `history-${session.claude_session_id}-${index}`,
-              role: displayRole,
-              content: msg.content,
-              timestamp: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
-              status: 'completed' as const,
-              metadata: msg.metadata && Object.keys(msg.metadata).length > 0 ? msg.metadata as MessageMetadata : undefined,
-            };
-          }).reverse();
-        } catch (err) {
-          console.warn('[ChatTab] Failed to load from plugin, falling back to database:', err);
-          // Fallback to database if plugin loading fails
-          const sessionMessages = await chatApi.getSessionMessages(session.id);
-          console.log(`[ChatTab] Loaded ${sessionMessages.length} messages from database for session ${session.id}`);
-
-          loadedMessages = sessionMessages.map((msg) => ({
-            id: msg.id,
-            role: msg.role as 'user' | 'assistant',
-            content: msg.content,
-            timestamp: new Date(msg.timestamp * 1000),
-            status: 'completed' as const,
-          }));
-        }
-      } else {
-        // No CLI session ID, load from database
-        const sessionMessages = await chatApi.getSessionMessages(session.id);
-        console.log(`[ChatTab] Loaded ${sessionMessages.length} messages from database for session ${session.id}`);
-
-        loadedMessages = sessionMessages.map((msg) => ({
-          id: msg.id,
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content,
-          timestamp: new Date(msg.timestamp * 1000),
-          status: 'completed' as const,
-        }));
-      }
-
-      console.log('[ChatTab] Setting messages to:', loadedMessages);
-      setMessages(activeTabId, loadedMessages);
-
-      // Create an AgentSession object from the database session for display
-      // Always set status to 'stopped' for resumed sessions - we don't have an active agent process yet
-      const resumedAgentSession: AgentSession = {
-        session_id: session.id,
-        project_id: session.project_id,
-        agent_type: session.agent_type,
-        status: 'stopped',
-        pid: null,
-        started_at: session.started_at,
-        last_activity: session.ended_at || session.started_at,
-        claude_session_id: session.claude_session_id || null,
-      };
-
-      // Set flag to prevent useEffect from reloading messages
-      skipNextLoadRef.current = true;
-
-      setActiveSession(activeTabId, resumedAgentSession);
-      setDbSessionId(session.id); // Set the DB session ID to the original session
-      setShowSessionHistory(false);
-
-      // System message removed - no longer showing "Viewing session history" notification
-      console.log('[ChatTab] Resumed session, total messages:', useChatStore.getState().getMessages(activeTabId).length);
-    } catch (err) {
-      console.error('Failed to resume session:', err);
-      setError(`Failed to resume session: ${err}`);
-    } finally {
-      setIsStartingSession(false);
     }
   };
 
@@ -1152,17 +631,14 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       console.log(`[ChatTab] Loaded ${history.length} messages from plugin`);
 
       // Convert plugin history to ChatMessage format
-      const loadedMessages: ChatMessage[] = history.map((msg, index) => {
-        const displayRole = msg.role as 'user' | 'assistant';
-        return {
-          id: `history-${cliSessionId}-${index}`,
-          role: displayRole,
-          content: msg.content,
-          timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-          status: 'completed' as const,
-          metadata: msg.metadata && Object.keys(msg.metadata).length > 0 ? msg.metadata as MessageMetadata : undefined,
-        };
-      });
+      const loadedMessages: ChatMessage[] = history.map((msg) => ({
+        id: msg.id,  // Use ID from plugin directly
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        timestamp: new Date(msg.timestamp * 1000),  // Convert seconds to milliseconds
+        status: 'completed' as const,
+        metadata: msg.metadata as MessageMetadata | undefined,
+      }));
 
       // Set messages
       setMessages(activeTabId, loadedMessages);
@@ -1183,8 +659,16 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       skipNextLoadRef.current = true;
 
       setActiveSession(activeTabId, resumedAgentSession);
-      setDbSessionId(null); // No DB session for CLI-only sessions
       setShowSessionHistory(false);
+
+      // Start the watcher through the manager (persists across tab switches)
+      sessionWatcherManager.startWatching(
+        cliSessionId,
+        activeTabId,
+        projectId,
+        pluginName,
+        project?.path || ''
+      );
 
       console.log('[ChatTab] Resumed CLI session, total messages:', loadedMessages.length);
     } catch (err) {
@@ -1197,7 +681,8 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
   // Load more historical messages
   const loadMoreMessages = async () => {
-    if (!currentCliSessionId || !historyHasMore || isLoadingMore || !currentAgentType) {
+    const cliSessionId = activeSession?.claude_session_id;
+    if (!cliSessionId || !historyHasMore || isLoadingMore || !currentAgentType) {
       return;
     }
 
@@ -1208,24 +693,19 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
       const history = await pluginChatApi.getChatHistoryPaginated(
         pluginName,
-        currentCliSessionId,
+        cliSessionId,
         historyOffset,
         MESSAGES_PER_PAGE
       );
 
-      const newMessages: ChatMessage[] = history.messages.map((msg, index) => {
-        // The role is already correct from the plugin (overridden to 'assistant' for tool messages)
-        const displayRole = msg.role as 'user' | 'assistant';
-
-        return {
-          id: `history-${currentCliSessionId}-${historyOffset + index}`,
-          role: displayRole,
-          content: msg.content,
-          timestamp: msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
-          status: 'completed' as const,
-          metadata: msg.metadata && Object.keys(msg.metadata).length > 0 ? msg.metadata as MessageMetadata : undefined,
-        };
-      }).reverse(); // Reverse to get chronological order (oldest first)
+      const newMessages: ChatMessage[] = history.messages.map((msg) => ({
+        id: msg.id,  // Use ID from plugin directly
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        timestamp: new Date(msg.timestamp * 1000),  // Convert seconds to milliseconds
+        status: 'completed' as const,
+        metadata: msg.metadata as MessageMetadata | undefined,
+      })).reverse(); // Reverse to get chronological order (oldest first)
 
       console.log(`[ChatTab] Loaded ${newMessages.length} more messages (has_more: ${history.has_more})`);
 
@@ -1242,84 +722,135 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     }
   };
 
+  // Cancel the current processing request
+  const handleCancel = useCallback(() => {
+    console.log('[ChatTab] Cancel requested');
+    // Reset typing state - this allows the user to send another message
+    setTyping(activeTabId, false);
+    // TODO: Implement backend process termination
+    // For now, this just resets the UI state so the user can send another message
+    // The AI process will continue running in the background and may still produce output
+  }, [activeTabId, setTyping]);
+
   const handleSend = async (messageContent?: string) => {
     const content = messageContent || inputValue.trim();
-    if (!content || isTyping) return;
+    if (!content) return;
+
+    console.log('[ChatTab handleSend] ========== START ==========');
+    console.log('[ChatTab handleSend] Content:', content);
+    console.log('[ChatTab handleSend] activeSession:', JSON.stringify(activeSession, null, 2));
+    console.log('[ChatTab handleSend] currentAgentType:', currentAgentType);
+    console.log('[ChatTab handleSend] isTyping:', isTyping);
 
     // If no active session, prompt to start one
     if (!activeSession) {
+      console.log('[ChatTab handleSend] ERROR: No active session');
       setError('Please start a session first');
       return;
     }
 
+    if (!projectId || !activeTabId) {
+      console.log('[ChatTab handleSend] ERROR: No projectId or activeTabId');
+      return;
+    }
+
     setInputValue('');
-    setTyping(activeTabId, true);
     setError(null);
 
-    // Add user message immediately
+    // Get any pending messages that haven't been acknowledged in history yet
+    const pendingMessages = getQueuedMessages(activeTabId);
+
+    // Combine pending messages with new message
+    // This handles the case where user sends multiple messages before Claude processes the first
+    let combinedContent: string;
+    if (pendingMessages.length > 0) {
+      console.log('[ChatTab handleSend] Combining', pendingMessages.length, 'pending messages with new message');
+      combinedContent = [...pendingMessages, content].join('\n\n');
+      // Flush the queue since we're sending them all now
+      flushQueue(activeTabId);
+    } else {
+      combinedContent = content;
+    }
+
+    // Queue the combined message (will be dequeued when seen in history)
+    queueMessage(activeTabId, combinedContent);
+
+    // Add user message to UI immediately (show combined content)
     const userMessage: ChatMessage = {
       id: `temp-user-${Date.now()}`,
       role: 'user',
-      content,
+      content: combinedContent,
       timestamp: new Date(),
       status: 'sending',
     };
-
-    if (!projectId || !activeTabId) return;
     addMessage(activeTabId, userMessage);
+
+    // Set typing indicator
+    setTyping(activeTabId, true);
 
     try {
       // Check if we need to start a new agent session (for resumed sessions)
       let sessionIdToUse = activeSession.session_id;
+      console.log('[ChatTab handleSend] Initial sessionIdToUse:', sessionIdToUse);
 
       // If the session is stopped/completed, we need to start a new agent process
+      console.log('[ChatTab handleSend] Checking restart conditions:');
+      console.log('  - status === stopped:', activeSession.status === 'stopped');
+      console.log('  - claude_session_id:', activeSession.claude_session_id);
+      console.log('  - projectId:', projectId);
+      console.log('  - currentAgentType:', currentAgentType);
+
       if (activeSession.status === 'stopped' && activeSession.claude_session_id && projectId && currentAgentType) {
-        console.log('[ChatTab] Restarting agent for resumed session with Claude session ID:', activeSession.claude_session_id, 'Agent:', currentAgentType);
+        console.log('[ChatTab handleSend] Restarting agent for resumed session with Claude session ID:', activeSession.claude_session_id, 'Agent:', currentAgentType);
 
         // Start a new agent session with the Claude resume flag
         const normalizedAgentType = currentAgentType.toLowerCase().replace(/\s+/g, '-');
+        console.log('[ChatTab handleSend] Normalized agent type:', normalizedAgentType);
+
         const newAgentSession = await agentSessionApi.startAgentSession(
           projectId,
           normalizedAgentType,
           activeSession.claude_session_id
         );
+        console.log('[ChatTab handleSend] New agent session:', JSON.stringify(newAgentSession, null, 2));
+
+        // Set flag to prevent useEffect from reloading messages (which would overwrite the user's new message)
+        skipNextLoadRef.current = true;
 
         // Update the active session with the new runtime session
         setActiveSession(activeTabId, newAgentSession);
-        // Keep dbSessionId pointing to the original resumed session for message history
         sessionIdToUse = newAgentSession.session_id;
 
-        console.log('[ChatTab] Agent restarted with session ID:', sessionIdToUse);
-      }
+        // Start polling for this restarted session
+        sessionPolling.startPolling(activeTabId);
 
-      // Send to the persistent agent session
-      await agentSessionApi.sendToAgent(sessionIdToUse, content);
-
-      // Save user message to database
-      if (projectId) {
-        try {
-          const sessionIdToSave = dbSessionId || sessionIdToUse;
-          const savedUserMessage = await chatApi.saveMessage(
+        // Make sure we're watching the correct CLI session for updates
+        const cliSessionToWatch = newAgentSession.claude_session_id || activeSession.claude_session_id;
+        if (cliSessionToWatch && project?.path) {
+          console.log('[ChatTab handleSend] Starting/updating watcher for CLI session:', cliSessionToWatch);
+          sessionWatcherManager.startWatching(
+            cliSessionToWatch,
+            activeTabId,
             projectId,
-            sessionIdToSave,
-            'user',
-            content
+            normalizedAgentType,
+            project.path
           );
-          console.log('[ChatTab] Saved user message to database:', savedUserMessage);
-
-          // Update the temp message with the real ID from database
-          updateMessage(activeTabId, userMessage.id, {
-            id: savedUserMessage.id,
-            status: 'sent' as MessageStatus
-          });
-        } catch (err) {
-          console.error('[ChatTab] Failed to save user message:', err);
-          // Still mark as sent even if save failed
-          updateMessage(activeTabId, userMessage.id, {
-            status: 'sent' as MessageStatus
-          });
         }
+
+        console.log('[ChatTab handleSend] Agent restarted with session ID:', sessionIdToUse);
+      } else {
+        console.log('[ChatTab handleSend] Using existing session, not restarting');
       }
+
+      // Send the combined content to the persistent agent session
+      console.log('[ChatTab handleSend] Calling sendToAgent with sessionId:', sessionIdToUse, 'message:', combinedContent);
+      await agentSessionApi.sendToAgent(sessionIdToUse, combinedContent);
+      console.log('[ChatTab handleSend] sendToAgent completed successfully');
+
+      // Mark the user message as sent (chat history is managed by CLI plugins)
+      updateMessage(activeTabId, userMessage.id, {
+        status: 'sent' as MessageStatus
+      });
 
       // Clear the waiting for input state if this was a response to a prompt
       if (isWaitingForInput) {
@@ -1328,21 +859,17 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         setPendingUserPrompt(null);
       }
 
-      // Add a "thinking" indicator message
-      const thinkingMessage: ChatMessage = {
-        id: `thinking-${Date.now()}`,
-        role: 'assistant',
-        content: '🤔 Claude is thinking...',
-        timestamp: new Date(),
-        status: 'streaming',
-        isStreaming: true,
-      };
-      addMessage(activeTabId, thinkingMessage);
-
-      // The response will come through the output polling
+      // The response will come through the session watcher
+      // The typing indicator (isTyping state) shows "Processing..." in the UI
     } catch (err) {
-      console.error('Failed to send message:', err);
-      setError('Failed to send message. Please try again.');
+      console.error('[ChatTab handleSend] ERROR:', err);
+      console.error('[ChatTab handleSend] Error type:', typeof err);
+      console.error('[ChatTab handleSend] Error string:', String(err));
+      if (err instanceof Error) {
+        console.error('[ChatTab handleSend] Error message:', err.message);
+        console.error('[ChatTab handleSend] Error stack:', err.stack);
+      }
+      setError(`Failed to send message: ${String(err)}`);
 
       // Update user message to show error
       if (activeTabId) {
@@ -1352,9 +879,12 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         });
       }
 
-      // Restore the input value so user can retry
+      // Restore the input value so user can retry (just the new content, not combined)
       setInputValue(content);
       setTyping(activeTabId, false);
+
+      // Also remove the failed message from queue
+      dequeueMessage(activeTabId, combinedContent);
     }
   };
 
@@ -1397,6 +927,76 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       handleSend();
     }
   };
+
+  // Handle voice recording submission
+  const handleVoiceSubmit = async (audioBlob: Blob) => {
+    console.log('[ChatTab] Voice recording submitted, size:', audioBlob.size);
+    setIsTranscribing(true);
+
+    try {
+      // Get Whisper settings
+      const whisperSettings = useSettingsStore.getState().whisper;
+      console.log('[ChatTab] Whisper settings:', whisperSettings.provider);
+
+      if (whisperSettings.provider === 'none') {
+        setError('Voice transcription not configured. Please set up Whisper in Settings.');
+        setShowVoiceModal(false);
+        return;
+      }
+
+      // Convert blob to array buffer for Tauri
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const audioData = Array.from(new Uint8Array(arrayBuffer));
+
+      let transcribedText: string;
+
+      if (whisperSettings.provider === 'openai') {
+        // Use OpenAI API via backend
+        console.log('[ChatTab] Using OpenAI Whisper API');
+        const result = await backend.transcription.transcribeOpenAI(
+          audioData,
+          whisperSettings.openaiApiKey
+        );
+        transcribedText = result.text;
+      } else {
+        // Use local Whisper via backend
+        console.log('[ChatTab] Using local Whisper with model:', whisperSettings.localModel);
+        const result = await backend.transcription.transcribeLocal(
+          audioData,
+          whisperSettings.localModel
+        );
+        transcribedText = result.text;
+      }
+
+      console.log('[ChatTab] Transcription result:', transcribedText);
+
+      // Close modal first
+      setShowVoiceModal(false);
+      setIsTranscribing(false);
+
+      // Send the transcribed text as a message
+      if (transcribedText.trim()) {
+        console.log('[ChatTab] Calling handleSend with transcribed text:', transcribedText.trim());
+        // Use setTimeout to ensure state updates have propagated
+        setTimeout(() => {
+          handleSend(transcribedText.trim());
+        }, 100);
+      } else {
+        console.log('[ChatTab] Transcription was empty, not sending');
+      }
+      return; // Exit early since we handled everything
+    } catch (err) {
+      console.error('[ChatTab] Transcription failed:', err);
+      setError(`Failed to transcribe audio: ${err}`);
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  // Check if voice recording is available
+  // Voice is enabled when: active session exists AND whisper is configured
+  const isWhisperConfigured = useSettingsStore((state) => state.isWhisperConfigured);
+  const isVoiceEnabled = !!activeSession && isWhisperConfigured();
 
   const formatTimestamp = (date: Date) => {
     const now = new Date();
@@ -1613,17 +1213,26 @@ export default function ChatTab({ projectId }: ChatTabProps) {
               formatTimestamp={formatTimestamp}
             />
 
-            {/* Typing Indicator */}
+            {/* Typing Indicator with Cycling Messages */}
             {isTyping && (
-              <div className="flex gap-3">
-                <div className="avatar">
-                  <div className="w-10 h-10 rounded-full bg-secondary text-secondary-content flex items-center justify-center">
-                    <Bot className="w-5 h-5" />
-                  </div>
+              <div className="flex gap-3 items-center">
+                <div className="w-10 h-10 rounded-full bg-secondary text-secondary-content flex items-center justify-center animate-pulse flex-shrink-0">
+                  <Bot className="w-5 h-5" />
                 </div>
-                <div className="chat-bubble chat-bubble-secondary px-4 py-3 flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Processing...</span>
+                <div className="flex items-center gap-2">
+                  <div className="chat-bubble chat-bubble-secondary px-4 py-3 flex items-center gap-3">
+                    <span className="loading loading-dots loading-sm"></span>
+                    <span className="text-sm min-w-[160px]">
+                      {currentSaying}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleCancel}
+                    className="btn btn-ghost btn-sm btn-circle hover:bg-error/20 hover:text-error transition-colors"
+                    title="Cancel and send a different message"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             )}
@@ -1678,22 +1287,40 @@ export default function ChatTab({ projectId }: ChatTabProps) {
               onKeyDown={handleKeyDown}
               placeholder={
                 activeSession
-                  ? "Send a message to the agent... (Shift+Enter for new line)"
+                  ? isTyping
+                    ? "Send a new message to interrupt and redirect... (Shift+Enter for new line)"
+                    : "Send a message to the agent... (Shift+Enter for new line)"
                   : "Start a session to begin chatting..."
               }
               className="textarea textarea-bordered flex-1 resize-none min-h-[50px] max-h-[200px]"
-              disabled={isTyping || !activeSession}
+              disabled={!activeSession}
               rows={1}
             />
+            {/* Voice Recording Button */}
+            <button
+              onClick={() => setShowVoiceModal(true)}
+              disabled={!isVoiceEnabled}
+              className="btn btn-ghost btn-square"
+              title={
+                !activeSession
+                  ? "Start a session to use voice input"
+                  : !isWhisperConfigured()
+                  ? "Configure voice transcription in Settings"
+                  : "Record voice message"
+              }
+            >
+              <Mic className={`w-5 h-5 ${isVoiceEnabled ? 'text-base-content' : 'text-base-content/30'}`} />
+            </button>
+            {/* Send Button */}
             <button
               onClick={() => handleSend()}
-              disabled={!inputValue.trim() || isTyping || !activeSession}
-              className="btn btn-primary"
-              title="Send message (Enter)"
+              disabled={!inputValue.trim() || !activeSession}
+              className={`btn ${isTyping ? 'btn-warning' : 'btn-primary'}`}
+              title={isTyping ? "Send new message (interrupts current)" : "Send message (Enter)"}
               data-send-button
             >
               {isTyping ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <Send className="w-5 h-5" />
               ) : (
                 <Send className="w-5 h-5" />
               )}
@@ -1741,6 +1368,14 @@ export default function ChatTab({ projectId }: ChatTabProps) {
           activeSessionId={activeSession?.claude_session_id || null}
         />
       )}
+
+      {/* Voice Recording Modal */}
+      <VoiceRecordingModal
+        isOpen={showVoiceModal}
+        onClose={() => setShowVoiceModal(false)}
+        onSubmit={handleVoiceSubmit}
+        isTranscribing={isTranscribing}
+      />
     </div>
   );
 }

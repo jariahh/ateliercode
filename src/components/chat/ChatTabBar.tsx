@@ -10,6 +10,7 @@ import type { DetectedAgent } from '../../api/agents';
 import { detectAgents } from '../../api/agents';
 import { getAgentDisplayConfig, getAgentDisplayName } from '../../lib/agentDisplay';
 import { useChatTabStore } from '../../stores/chatTabStore';
+import { useSessionStore } from '../../stores/sessionStore';
 
 interface ChatTabBarProps {
   tabs: ChatTab[];
@@ -54,14 +55,17 @@ export default function ChatTabBar({
   // Track which tabs have activity
   const tabsWithActivity = useChatTabStore((state) => state.tabsWithActivity);
 
-  // Load available agents when dropdown is opened
+  // Get sessions to check which tabs have actively running sessions
+  const sessionsByTab = useSessionStore((state) => state.sessionsByTab);
+
+  // Load available agents on mount (needed for tab icons) and when dropdown opens
   useEffect(() => {
-    if (showAgentDropdown && availableAgents.length === 0) {
+    if (availableAgents.length === 0) {
       detectAgents()
         .then(setAvailableAgents)
         .catch(err => console.error('Failed to load agents:', err));
     }
-  }, [showAgentDropdown]);
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -80,15 +84,18 @@ export default function ChatTabBar({
     }
   }, [showAgentDropdown]);
 
+  // Use agents prop if provided, otherwise use locally loaded agents
+  const agentList = agents || availableAgents;
+
   // Get display config for an agent type
   const getConfig = (agentType: string) => {
-    const agentInfo = findAgentInfo(agents, agentType);
+    const agentInfo = findAgentInfo(agentList, agentType);
     return getAgentDisplayConfig(agentInfo?.icon, agentInfo?.color);
   };
 
   // Get display name for an agent type
   const getDisplayName = (agentType: string) => {
-    const agentInfo = findAgentInfo(agents, agentType);
+    const agentInfo = findAgentInfo(agentList, agentType);
     return getAgentDisplayName(agentType, agentInfo?.displayName);
   };
 
@@ -136,8 +143,10 @@ export default function ChatTabBar({
             `}
             onClick={() => !isEditing && onTabClick(tab.id)}
           >
-            {/* Agent Icon */}
-            <span className="text-sm flex-shrink-0">{config.icon}</span>
+            {/* Agent Icon with colored background */}
+            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-sm leading-none flex-shrink-0 ${config.bg} ${config.border} border`}>
+              {config.icon}
+            </span>
 
             {/* Tab Name */}
             {isEditing ? (
@@ -165,8 +174,8 @@ export default function ChatTabBar({
               </span>
             )}
 
-            {/* Session indicator (active session) */}
-            {tab.cli_session_id && !tabsWithActivity.has(tab.id) && (
+            {/* Session indicator (actively running session in memory) */}
+            {sessionsByTab.has(tab.id) && !tabsWithActivity.has(tab.id) && (
               <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" title="Active session" />
             )}
 
@@ -262,7 +271,9 @@ export default function ChatTabBar({
                       setShowAgentDropdown(false);
                     }}
                   >
-                    <span className="text-sm">{config.icon}</span>
+                    <span className={`flex items-center justify-center w-6 h-6 rounded-full text-sm leading-none ${config.bg} ${config.border} border`}>
+                      {config.icon}
+                    </span>
                     <span className="text-sm">{agent.displayName || agent.name}</span>
                   </button>
                 );

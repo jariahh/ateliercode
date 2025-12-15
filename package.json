@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 1420 --host",
+    "dev:web": "VITE_BUILD_TARGET=web vite dev --port 3000 --host",
     "tauri": "tauri dev",
     "tauri:dev": "npm run build:plugins && tauri dev",
     "build": "vite build",
+    "build:web": "VITE_BUILD_TARGET=web vite build",
     "build:tauri": "tauri build",
     "build:plugins": "node scripts/build-plugins.js",
     "preview": "vite preview",
+    "preview:web": "VITE_BUILD_TARGET=web vite preview --port 3000",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"

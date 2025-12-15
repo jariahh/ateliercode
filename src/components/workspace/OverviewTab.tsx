@@ -18,7 +18,6 @@ import type { ActivityLog, ProjectStats } from '../../types/tauri';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useChatStore } from '../../stores/chatStore';
 import * as agentSessionApi from '../../api/agentSession';
-import * as chatApi from '../../api/chat';
 import type { AgentSession } from '../../api/agentSession';
 import * as sessionPolling from '../../services/sessionPollingManager';
 import type { ChatMessage } from './ChatTab';
@@ -223,8 +222,7 @@ export default function OverviewTab({ projectId, agentType, projectPath }: Overv
       // Send to agent
       await agentSessionApi.sendToAgent(activeSession.session_id, message);
 
-      // Save to database
-      await chatApi.saveMessage(projectId, activeSession.session_id, 'user', message);
+      // Note: Chat history is managed by CLI plugins, no database saving needed
 
       // Update status to sent
       useChatStore.getState().updateMessage(projectId, userMessage.id, { status: 'sent' });

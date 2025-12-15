@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 /// A message in the conversation history
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
+    pub id: String,   // Unique message ID (stable)
     pub role: String, // "user" or "assistant"
     pub content: String,
     pub timestamp: Option<i64>,
@@ -51,6 +52,7 @@ pub async fn get_chat_history(
     let messages: Vec<ChatMessage> = history
         .into_iter()
         .map(|msg| ChatMessage {
+            id: msg.id,
             role: msg.role,
             content: msg.content,
             timestamp: Some(msg.timestamp),
@@ -117,6 +119,7 @@ pub async fn get_chat_history_paginated(
         .messages
         .into_iter()
         .map(|msg| ChatMessage {
+            id: msg.id,
             role: msg.role,
             content: msg.content,
             timestamp: Some(msg.timestamp),

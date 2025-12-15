@@ -617,12 +617,19 @@ impl AgentPlugin for GenericCliPlugin {
                     msg.get("role").and_then(|v| v.as_str()),
                     msg.get("content").and_then(|v| v.as_str()),
                 ) {
+                    let timestamp = msg.get("timestamp")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(chrono::Utc::now().timestamp());
+                    // Generate a stable ID from timestamp and content
+                    let id = msg.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("msg-{}-{:x}", timestamp, content.len()));
                     result.push(HistoryMessage {
+                        id,
                         role: role.to_string(),
                         content: content.to_string(),
-                        timestamp: msg.get("timestamp")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(chrono::Utc::now().timestamp()),
+                        timestamp,
                         metadata: HashMap::new(),
                     });
                 }

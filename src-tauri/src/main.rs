@@ -8,6 +8,7 @@ mod agents;
 mod ai_service;
 mod commands;
 mod commands_chat;
+mod commands_whisper;
 mod db;
 mod file_watcher;
 mod models;
@@ -29,6 +30,18 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to AtelierCode!", name)
 }
 
+#[tauri::command]
+fn get_hostname() -> String {
+    hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "Unknown".to_string())
+}
+
+#[tauri::command]
+fn get_platform() -> String {
+    std::env::consts::OS.to_string()
+}
+
 fn main() {
     // Initialize logger
     env_logger::init();
@@ -38,6 +51,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            get_hostname,
+            get_platform,
             commands::create_project,
             commands::get_projects,
             commands::get_project,
@@ -56,6 +71,8 @@ fn main() {
             commands::delete_task,
             commands::update_task_status,
             commands::read_project_files,
+            commands::get_folder_children,
+            commands::get_git_status,
             commands::read_file_content,
             commands::send_message,
             commands::get_messages,
@@ -106,6 +123,11 @@ fn main() {
             commands_chat::send_chat_message,
             commands_chat::start_watching_session,
             commands_chat::stop_watching_session,
+            // Whisper transcription commands
+            commands_whisper::check_whisper_installation,
+            commands_whisper::install_whisper,
+            commands_whisper::transcribe_local,
+            commands_whisper::transcribe_openai,
         ])
         .setup(|app| {
             // Initialize database

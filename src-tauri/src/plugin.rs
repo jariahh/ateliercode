@@ -197,13 +197,16 @@ pub struct SessionInfo {
 /// A message from conversation history
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryMessage {
+    /// Unique message ID (stable, from CLI or generated)
+    pub id: String,
+
     /// Role: "user" or "assistant"
     pub role: String,
 
-    /// Message content
+    /// Message content (always a string)
     pub content: String,
 
-    /// Timestamp
+    /// Timestamp (Unix timestamp in SECONDS)
     pub timestamp: i64,
 
     /// Additional metadata (tool use, thinking, etc.)

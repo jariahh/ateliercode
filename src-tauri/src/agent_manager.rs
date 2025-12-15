@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
 
 use crate::output_parser::{AgentEvent, OutputParser};
@@ -41,6 +41,8 @@ struct RunningSession {
     parsed_events: Vec<AgentEvent>,
     parser: OutputParser,
     claude_session_id: Option<String>,
+    /// The currently running child process (if any)
+    active_child: Option<Arc<RwLock<Option<Child>>>>,
 }
 
 /// Manages all agent sessions and their lifecycle
@@ -99,18 +101,25 @@ impl AgentManager {
             parsed_events: Vec::new(),
             parser: OutputParser::new(),
             claude_session_id: resume_session_id.clone(),
+            active_child: None,
         };
 
         self.sessions.write().await.insert(session_id.clone(), running_session);
 
         log::info!("Agent session {} started successfully", session_id);
 
-        // If starting a new session (not resuming), initialize it to get the Claude session ID
-        if resume_session_id.is_none() && agent_type.to_lowercase().contains("claude") {
-            if let Err(e) = self.initialize_claude_session(&session_id, &root_path).await {
-                log::warn!("Failed to initialize Claude session ID: {}", e);
-                // Don't fail the whole session start, just log the warning
+        // If starting a new session (not resuming), initialize it to get the CLI session ID
+        if resume_session_id.is_none() {
+            let agent_lower = agent_type.to_lowercase();
+            if agent_lower.contains("claude") {
+                if let Err(e) = self.initialize_claude_session(&session_id, &root_path).await {
+                    log::warn!("Failed to initialize Claude session ID: {}", e);
+                    // Don't fail the whole session start, just log the warning
+                }
             }
+            // Note: Gemini CLI v0.19+ now supports --resume and --list-sessions.
+            // We use --resume latest in get_headless_command to automatically continue
+            // the most recent session, so explicit initialization is not needed here.
         }
 
         // Return the updated session (might have claude_session_id now)
@@ -189,8 +198,12 @@ impl AgentManager {
     }
 
     /// Send a message to an agent session using headless mode
+    /// If a process is already running, it will be killed first (interrupt + resume pattern)
     pub async fn send_message(&self, session_id: &str, message: String) -> Result<()> {
         log::info!("Sending message to session {}: {}", session_id, message);
+
+        // First, kill any existing process for this session
+        self.kill_active_process(session_id).await;
 
         let sessions = self.sessions.read().await;
         let running_session = sessions
@@ -238,11 +251,16 @@ impl AgentManager {
 
         log::info!("Headless command spawned with PID: {:?}", pid);
 
-        // Update PID
+        // Create a shared reference to the child process for tracking
+        let child_holder: Arc<RwLock<Option<Child>>> = Arc::new(RwLock::new(None));
+        let child_holder_clone = child_holder.clone();
+
+        // Update PID and store the child process reference
         {
             let mut sessions = self.sessions.write().await;
             if let Some(running_session) = sessions.get_mut(session_id) {
                 running_session.session.pid = pid;
+                running_session.active_child = Some(child_holder.clone());
             }
         }
 
@@ -315,15 +333,49 @@ impl AgentManager {
             });
         }
 
+        // Store the child in the holder so it can be killed if needed
+        {
+            let mut holder = child_holder_clone.write().await;
+            *holder = Some(child);
+        }
+
         // Wait for process to complete in another task
         tokio::spawn(async move {
-            match child.wait().await {
-                Ok(status) => log::info!("Headless command completed with status: {}", status),
-                Err(e) => log::error!("Error waiting for headless command: {}", e),
+            // Get the child from the holder
+            let mut child_opt = child_holder.write().await;
+            if let Some(mut child) = child_opt.take() {
+                match child.wait().await {
+                    Ok(status) => log::info!("Headless command completed with status: {}", status),
+                    Err(e) => log::error!("Error waiting for headless command: {}", e),
+                }
             }
         });
 
         Ok(())
+    }
+
+    /// Kill the active child process for a session (if any)
+    async fn kill_active_process(&self, session_id: &str) {
+        let sessions = self.sessions.read().await;
+        if let Some(running_session) = sessions.get(session_id) {
+            if let Some(child_holder) = &running_session.active_child {
+                let mut child_opt = child_holder.write().await;
+                if let Some(ref mut child) = *child_opt {
+                    log::info!("Killing active process for session {} (PID: {:?})", session_id, child.id());
+
+                    // Try to kill the process
+                    if let Err(e) = child.kill().await {
+                        log::warn!("Failed to kill process: {}", e);
+                    }
+
+                    // Wait for it to actually terminate
+                    let _ = child.wait().await;
+                    log::info!("Process killed successfully");
+                }
+                // Clear the child
+                *child_opt = None;
+            }
+        }
     }
 
     /// Read output from an agent session (non-blocking)
@@ -396,6 +448,9 @@ impl AgentManager {
     /// Stop an agent session
     pub async fn stop_session(&self, session_id: &str) -> Result<()> {
         log::info!("Stopping agent session {}", session_id);
+
+        // First, kill any active process
+        self.kill_active_process(session_id).await;
 
         let mut sessions = self.sessions.write().await;
 
@@ -500,19 +555,28 @@ impl AgentManager {
                     anyhow::bail!("Aider CLI not found. Please ensure 'aider' is installed and in your PATH.");
                 }
             }
-            "gemini" => {
+            "gemini" | "gemini-cli" => {
                 // Check if gemini CLI is available
                 if which::which("gemini").is_ok() {
-                    Ok((
-                        "gemini".to_string(),
-                        vec![
-                            "-p".to_string(),              // REQUIRED: Headless mode flag (--prompt)
-                            message.to_string(),           // The user's message
-                            "--output-format".to_string(), // Output format flag
-                            "text".to_string(),            // Plain text output for parsing
-                            "--yolo".to_string(),          // Auto-approve all actions
-                        ],
-                    ))
+                    let mut args = Vec::new();
+
+                    // Gemini CLI uses --resume to continue sessions
+                    // Pass the session ID directly - Gemini should accept it
+                    if let Some(session_id) = claude_session_id {
+                        args.push("--resume".to_string());
+                        args.push(session_id.to_string());
+                        log::info!("Gemini: Using --resume with session ID: {}", session_id);
+                    }
+                    // If no session_id, start a fresh session (no --resume flag)
+
+                    // Use positional prompt (recommended over deprecated -p flag)
+                    args.push(message.to_string());
+                    args.push("-o".to_string());           // Output format flag (short form)
+                    args.push("text".to_string());         // Plain text output for parsing
+                    args.push("--yolo".to_string());       // Auto-approve all actions
+
+                    log::info!("Gemini command args: {:?}", args);
+                    Ok(("gemini".to_string(), args))
                 } else {
                     anyhow::bail!("Gemini CLI not found. Please ensure 'gemini' is installed and in your PATH.");
                 }

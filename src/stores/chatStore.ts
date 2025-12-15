@@ -17,6 +17,10 @@ interface ChatState {
   // Typing state per tab (true when waiting for response)
   typingByTab: Map<string, boolean>;
 
+  // Pending message queue per tab (messages waiting to be sent)
+  // These are messages the user typed while the agent was processing
+  pendingQueueByTab: Map<string, string[]>;
+
   // Get messages for a tab
   getMessages: (tabId: string) => ChatMessage[];
 
@@ -43,12 +47,28 @@ interface ChatState {
 
   // Set typing state for a tab
   setTyping: (tabId: string, isTyping: boolean) => void;
+
+  // Queue a message to be sent (when agent is busy)
+  queueMessage: (tabId: string, content: string) => void;
+
+  // Get all queued messages for a tab
+  getQueuedMessages: (tabId: string) => string[];
+
+  // Clear the queue and return all messages (for sending)
+  flushQueue: (tabId: string) => string[];
+
+  // Remove specific message from queue (when seen in history)
+  dequeueMessage: (tabId: string, content: string) => boolean;
+
+  // Check if queue has messages
+  hasQueuedMessages: (tabId: string) => boolean;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messagesByTab: new Map(),
   messageIdsByTab: new Map(),
   typingByTab: new Map(),
+  pendingQueueByTab: new Map(),
 
   getMessages: (tabId: string) => {
     return get().messagesByTab.get(tabId) || [];
@@ -182,5 +202,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       return { typingByTab: newMap };
     });
+  },
+
+  queueMessage: (tabId: string, content: string) => {
+    set((state) => {
+      const newMap = new Map(state.pendingQueueByTab);
+      const queue = newMap.get(tabId) || [];
+      newMap.set(tabId, [...queue, content]);
+      console.log(`[ChatStore] Queued message for tab ${tabId}:`, content.substring(0, 50));
+      return { pendingQueueByTab: newMap };
+    });
+  },
+
+  getQueuedMessages: (tabId: string) => {
+    return get().pendingQueueByTab.get(tabId) || [];
+  },
+
+  flushQueue: (tabId: string) => {
+    const queue = get().pendingQueueByTab.get(tabId) || [];
+    set((state) => {
+      const newMap = new Map(state.pendingQueueByTab);
+      newMap.delete(tabId);
+      return { pendingQueueByTab: newMap };
+    });
+    console.log(`[ChatStore] Flushed ${queue.length} messages from queue for tab ${tabId}`);
+    return queue;
+  },
+
+  dequeueMessage: (tabId: string, content: string) => {
+    const queue = get().pendingQueueByTab.get(tabId) || [];
+    // Find and remove the first matching message (normalize whitespace for comparison)
+    const normalizedContent = content.trim();
+    const index = queue.findIndex(msg => msg.trim() === normalizedContent);
+
+    if (index !== -1) {
+      set((state) => {
+        const newMap = new Map(state.pendingQueueByTab);
+        const newQueue = [...queue];
+        newQueue.splice(index, 1);
+        if (newQueue.length === 0) {
+          newMap.delete(tabId);
+        } else {
+          newMap.set(tabId, newQueue);
+        }
+        return { pendingQueueByTab: newMap };
+      });
+      console.log(`[ChatStore] Dequeued message for tab ${tabId}:`, content.substring(0, 50));
+      return true;
+    }
+    return false;
+  },
+
+  hasQueuedMessages: (tabId: string) => {
+    const queue = get().pendingQueueByTab.get(tabId);
+    return queue !== undefined && queue.length > 0;
   },
 }));
