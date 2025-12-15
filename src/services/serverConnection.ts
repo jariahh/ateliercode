@@ -499,7 +499,10 @@ export async function initServerConnection(): Promise<void> {
   const settings = useSettingsStore.getState();
 
   // In web mode, use hardcoded server URL and authStore token
-  const isWebMode = typeof window !== 'undefined' && !('__TAURI__' in window);
+  // Tauri v2 uses __TAURI_INTERNALS__, v1 uses __TAURI__
+  const isTauriApp = typeof window !== 'undefined' &&
+    ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+  const isWebMode = !isTauriApp;
   const serverUrl = isWebMode ? 'wss://api.ateliercode.dev' : settings.server.url;
   const serverEnabled = isWebMode ? true : settings.server.enabled;
 
