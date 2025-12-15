@@ -4,9 +4,6 @@ import { isWeb } from '../lib/platform';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'authenticated';
 
-// Special machine ID for cloud/web mode
-export const CLOUD_MACHINE_ID = 'cloud';
-
 interface MachineState {
   // Connection to central server
   connectionState: ConnectionState;
@@ -60,19 +57,19 @@ export const useMachineStore = create<MachineState>()((set, get) => ({
   },
 
   isCloudMode: () => {
-    const { selectedMachineId } = get();
-    return selectedMachineId === CLOUD_MACHINE_ID || isWeb();
+    // Cloud mode = web mode (browser without Tauri)
+    return isWeb();
   },
 
   isWebWithoutMachine: () => {
     const { selectedMachineId } = get();
-    // In web mode with no machine selected (or cloud selected but no real machine)
-    return isWeb() && (selectedMachineId === null || selectedMachineId === CLOUD_MACHINE_ID);
+    // In web mode with no machine selected
+    return isWeb() && selectedMachineId === null;
   },
 
   getSelectedMachine: () => {
     const { selectedMachineId, machines } = get();
-    if (!selectedMachineId || selectedMachineId === CLOUD_MACHINE_ID) return null;
+    if (!selectedMachineId) return null;
     return machines.find((m) => m.id === selectedMachineId) || null;
   },
 

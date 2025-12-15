@@ -10,15 +10,11 @@ import ErrorBoundary from './components/ErrorBoundary';
 import AuthDialog from './components/AuthDialog';
 import { initServerConnection } from './services/serverConnection';
 import { useAuthStore } from './stores/authStore';
-import { useMachineStore, CLOUD_MACHINE_ID } from './stores/machineStore';
-import { useProjectStore } from './stores/projectStore';
 import { isWeb } from './lib/platform';
-import { initializeBackend } from './services/backend';
 
 function App() {
   const currentYear = new Date().getFullYear();
   const { isAuthenticated, checkAuth, setShowAuthDialog } = useAuthStore();
-  const { selectMachine } = useMachineStore();
 
   // Initialize app based on platform
   useEffect(() => {
@@ -29,8 +25,6 @@ function App() {
         if (!authenticated) {
           setShowAuthDialog(true);
         } else {
-          // Set machine to cloud when authenticated in web mode
-          selectMachine(CLOUD_MACHINE_ID);
           // Connect to server for WebRTC signaling
           initServerConnection().catch((err) => {
             console.log('[App] Server connection not available:', err);
@@ -50,7 +44,6 @@ function App() {
   // When auth state changes in web mode, connect to server for signaling
   useEffect(() => {
     if (isWeb() && isAuthenticated) {
-      selectMachine(CLOUD_MACHINE_ID);
       // Connect to server for WebRTC signaling after auth
       initServerConnection().catch((err) => {
         console.log('[App] Server connection not available:', err);

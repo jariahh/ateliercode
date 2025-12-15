@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Monitor, ChevronDown, Wifi, WifiOff, Cloud, CloudOff, Globe } from 'lucide-react';
-import { useMachineStore, CLOUD_MACHINE_ID } from '../stores/machineStore';
+import { Monitor, ChevronDown, Wifi, WifiOff, Cloud, CloudOff } from 'lucide-react';
+import { useMachineStore } from '../stores/machineStore';
 import { useAuthStore } from '../stores/authStore';
 import { useProjectStore } from '../stores/projectStore';
-import { serverConnection } from '../services/serverConnection';
 import { peerConnection } from '../services/peerConnection';
 import { switchToWebRTCBackend, switchToTauriBackend, isTauriAvailable } from '../services/backend';
 
@@ -17,7 +16,6 @@ function isDefinitelyTauri(): boolean {
   // Check using backend detection
   return isTauriAvailable();
 }
-import { isWeb } from '../lib/platform';
 
 interface MachineSelectorProps {
   isCollapsed: boolean;
@@ -53,18 +51,18 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
   // In Tauri mode, always show (local machine is always available)
   // In web mode, always show (to prompt sign in or show machines)
 
-  // In web mode, show even if not authenticated (will show "Sign in to see machines")
-  const isCloudSelected = selectedMachineId === CLOUD_MACHINE_ID;
-
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
-  const isLocalSelected = !selectedMachineId || selectedMachineId === localMachineId;
+  // In desktop mode: local is selected when no machine ID or matches local machine
+  // In web mode: nothing is "local", user must select a remote machine
+  const isLocalSelected = !webMode && (!selectedMachineId || selectedMachineId === localMachineId);
+  const hasRemoteSelected = selectedMachine && selectedMachineId !== localMachineId;
 
   const handleSelectMachine = async (machineId: string | null) => {
     selectMachine(machineId);
     setIsOpen(false);
 
     // If selecting a remote machine, initiate WebRTC connection
-    if (machineId && machineId !== localMachineId && machineId !== CLOUD_MACHINE_ID) {
+    if (machineId && machineId !== localMachineId) {
       try {
         console.log('[MachineSelector] Connecting to remote machine:', machineId);
         const connected = await peerConnection.connect(machineId);
@@ -80,8 +78,8 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
       } catch (error) {
         console.error('[MachineSelector] Connection error:', error);
       }
-    } else if (!machineId || machineId === localMachineId) {
-      // Switching back to local machine
+    } else if (!webMode && (!machineId || machineId === localMachineId)) {
+      // Switching back to local machine (only in desktop mode)
       if (isTauriAvailable()) {
         console.log('[MachineSelector] Switching to local Tauri backend');
         switchToTauriBackend();
@@ -150,36 +148,31 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
       >
         {/* Machine Icon */}
         <div className="relative">
-          {webMode && isCloudSelected ? (
-            <Globe className="w-5 h-5 text-primary" />
-          ) : isLocalSelected ? (
+          {isLocalSelected ? (
             <Monitor className="w-5 h-5" />
-          ) : (
+          ) : hasRemoteSelected ? (
             <Cloud className="w-5 h-5 text-info" />
+          ) : (
+            <Cloud className="w-5 h-5 text-base-content/40" />
           )}
         </div>
 
         {/* Machine Name */}
         <div className="flex-1 text-left min-w-0">
           <div className="text-sm font-medium truncate">
-            {webMode && isCloudSelected
-              ? 'Cloud'
-              : isLocalSelected
-                ? 'This Machine'
-                : selectedMachine?.name || 'Select Machine'}
+            {isLocalSelected
+              ? 'This Machine'
+              : hasRemoteSelected
+                ? selectedMachine?.name
+                : 'Select Machine'}
           </div>
           <div className="text-xs text-base-content/60 truncate">
-            {webMode && isCloudSelected ? (
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-primary inline-block" />
-                Select a machine
-              </span>
-            ) : isLocalSelected ? (
+            {isLocalSelected ? (
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-success inline-block" />
                 Local
               </span>
-            ) : (
+            ) : hasRemoteSelected ? (
               <span className="flex items-center gap-1">
                 {selectedMachine?.isOnline ? (
                   <>
@@ -192,6 +185,10 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
                     Offline
                   </>
                 )}
+              </span>
+            ) : (
+              <span className="text-base-content/40">
+                Choose a machine to connect
               </span>
             )}
           </div>
@@ -252,8 +249,6 @@ function MachineList({
   const remoteMachines = localMachineId
     ? machines.filter((m) => m.id !== localMachineId)
     : machines;
-
-  console.log('[MachineList] localMachineId:', localMachineId, 'selectedMachineId:', selectedMachineId, 'machines:', machines.length, 'remoteMachines:', remoteMachines.length);
 
   // In web mode and not authenticated, show sign in prompt
   if (webMode && !isAuthenticated) {

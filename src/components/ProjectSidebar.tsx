@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, FolderOpen, Plus, Home, Settings, Cloud, LogIn } from 'lucide-react';
 import { useProjectStore } from '../stores/projectStore';
 import { useProjectActivityStore, startActivityCleanup, stopActivityCleanup } from '../stores/projectActivityStore';
-import { useMachineStore, CLOUD_MACHINE_ID } from '../stores/machineStore';
+import { useMachineStore } from '../stores/machineStore';
 import { useAuthStore } from '../stores/authStore';
 import { isWeb } from '../lib/platform';
 import MachineSelector from './MachineSelector';
@@ -33,9 +33,10 @@ export default function ProjectSidebar() {
   // Check if we're in web mode
   const webMode = isWeb();
 
-  // In web mode, check if user has selected a real machine (not cloud)
+  // In web mode, check if user has selected a remote machine
+  // In desktop mode, local machine is always available
   const hasSelectedRealMachine = webMode
-    ? selectedMachineId !== null && selectedMachineId !== CLOUD_MACHINE_ID
+    ? selectedMachineId !== null
     : true;
 
   // Get available machines for the selector
