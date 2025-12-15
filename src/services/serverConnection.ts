@@ -365,10 +365,24 @@ class ServerConnection {
     }
   }
 
-  private handleMachineStatusChange(message: WSMessage): void {
+  private async handleMachineStatusChange(message: WSMessage): Promise<void> {
     const { machineId, name } = message.payload as { machineId: string; name: string };
     const isOnline = message.type === 'machine_online';
-    useMachineStore.getState().updateMachineStatus(machineId, isOnline);
+
+    // Check if this machine is already in our list
+    const existingMachines = useMachineStore.getState().machines;
+    const machineExists = existingMachines.some(m => m.id === machineId);
+
+    if (machineExists) {
+      // Update existing machine status
+      useMachineStore.getState().updateMachineStatus(machineId, isOnline);
+    } else if (isOnline) {
+      // New machine came online - refresh the full list to get all machine info
+      console.log(`[ServerConnection] New machine ${name} came online, refreshing machine list`);
+      const machines = await this.listMachines();
+      useMachineStore.getState().setMachines(machines);
+    }
+
     console.log(`[ServerConnection] Machine ${name} is now ${isOnline ? 'online' : 'offline'}`);
   }
 
