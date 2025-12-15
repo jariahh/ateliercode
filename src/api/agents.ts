@@ -3,6 +3,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { peerConnection } from '../services/peerConnection';
 
 export interface DetectedAgent {
   name: string;
@@ -33,7 +34,13 @@ interface AgentInfoResponse {
  * Detect available AI agents on the system
  */
 export async function detectAgents(): Promise<DetectedAgent[]> {
-  const agents = await invoke<AgentInfoResponse[]>('detect_agents');
+  let agents: AgentInfoResponse[];
+
+  if (peerConnection.isConnected) {
+    agents = await peerConnection.sendCommand<AgentInfoResponse[]>('detect_agents', {});
+  } else {
+    agents = await invoke<AgentInfoResponse[]>('detect_agents');
+  }
 
   // Transform snake_case from Rust to camelCase for TypeScript
   return agents.map(agent => ({
