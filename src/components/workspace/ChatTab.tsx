@@ -9,6 +9,7 @@ import type { AgentSession } from '../../api/agentSession';
 import * as sessionPolling from '../../services/sessionPollingManager';
 import * as sessionWatcherManager from '../../services/sessionWatcherManager';
 import { useBackend } from '../../services/backend';
+import { peerConnection } from '../../services/peerConnection';
 import { useProjectStore } from '../../stores/projectStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useChatStore } from '../../stores/chatStore';
@@ -1007,12 +1008,44 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     setIsTranscribing(true);
 
     try {
-      // Get Whisper settings
-      const whisperSettings = useSettingsStore.getState().whisper;
-      console.log('[ChatTab] Whisper settings:', whisperSettings.provider);
+      // Get Whisper settings - use remote settings if connected via WebRTC
+      let whisperSettings = useSettingsStore.getState().whisper;
+
+      if (peerConnection.isClient) {
+        // Fetch settings from remote machine
+        console.log('[ChatTab] Fetching whisper settings from remote machine');
+        try {
+          const remoteSettings = await peerConnection.sendCommand<{
+            provider: string;
+            openaiApiKey: string;
+            localModel: string;
+            localInstalled: boolean;
+            localModelDownloaded: boolean;
+          }>('get_whisper_settings', {});
+          whisperSettings = {
+            ...whisperSettings,
+            provider: remoteSettings.provider as 'none' | 'openai' | 'local',
+            openaiApiKey: remoteSettings.openaiApiKey,
+            localModel: remoteSettings.localModel,
+            localInstalled: remoteSettings.localInstalled,
+            localModelDownloaded: remoteSettings.localModelDownloaded,
+          };
+          console.log('[ChatTab] Remote whisper settings:', remoteSettings.provider);
+        } catch (err) {
+          console.error('[ChatTab] Failed to fetch remote whisper settings:', err);
+          setError('Failed to get voice settings from remote machine');
+          setShowVoiceModal(false);
+          return;
+        }
+      }
+
+      console.log('[ChatTab] Whisper settings provider:', whisperSettings.provider);
 
       if (whisperSettings.provider === 'none') {
-        setError('Voice transcription not configured. Please set up Whisper in Settings.');
+        const errorMsg = peerConnection.isClient
+          ? 'Voice transcription not configured on remote machine. Please set up Whisper in Settings on the desktop.'
+          : 'Voice transcription not configured. Please set up Whisper in Settings.';
+        setError(errorMsg);
         setShowVoiceModal(false);
         return;
       }
@@ -1067,9 +1100,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   };
 
   // Check if voice recording is available
-  // Voice is enabled when: active session exists AND whisper is configured
+  // Voice is enabled when: active session exists AND (whisper is configured locally OR connected via WebRTC)
+  // When connected via WebRTC, transcription happens on the remote machine which may have Whisper configured
   const isWhisperConfigured = useSettingsStore((state) => state.isWhisperConfigured);
-  const isVoiceEnabled = !!activeSession && isWhisperConfigured();
+  const isWebRTCClient = peerConnection.isClient;
+  const isVoiceEnabled = !!activeSession && (isWhisperConfigured() || isWebRTCClient);
 
   const formatTimestamp = (date: Date) => {
     const now = new Date();
@@ -1377,8 +1412,10 @@ export default function ChatTab({ projectId }: ChatTabProps) {
               title={
                 !activeSession
                   ? "Start a session to use voice input"
-                  : !isWhisperConfigured()
+                  : !isWhisperConfigured() && !isWebRTCClient
                   ? "Configure voice transcription in Settings"
+                  : isWebRTCClient
+                  ? "Record voice message (transcribed on remote machine)"
                   : "Record voice message"
               }
             >

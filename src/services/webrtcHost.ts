@@ -345,6 +345,20 @@ const commandHandlers: Record<string, CommandHandler> = {
       apiKey: params.apiKey as string,
     });
   },
+
+  // Get whisper settings from host machine (for web clients to know how to transcribe)
+  get_whisper_settings: async () => {
+    // Import settings store dynamically to avoid circular deps
+    const { useSettingsStore } = await import('../stores/settingsStore');
+    const whisper = useSettingsStore.getState().whisper;
+    return {
+      provider: whisper.provider,
+      openaiApiKey: whisper.openaiApiKey,
+      localModel: whisper.localModel,
+      localInstalled: whisper.localInstalled,
+      localModelDownloaded: whisper.localModelDownloaded,
+    };
+  },
 };
 
 /**
