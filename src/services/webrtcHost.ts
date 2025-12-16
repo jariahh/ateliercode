@@ -333,9 +333,28 @@ const commandHandlers: Record<string, CommandHandler> = {
   },
 
   transcribe_local: async (params) => {
+    const audioData = params.audioData as number[];
+    const model = params.model as string;
+
+    // Debug: Log audio data info to verify integrity after WebRTC transfer
+    console.log('[WebRTCHost] transcribe_local - audioData type:', typeof audioData);
+    console.log('[WebRTCHost] transcribe_local - audioData isArray:', Array.isArray(audioData));
+    console.log('[WebRTCHost] transcribe_local - audioData length:', audioData?.length || 0);
+    if (audioData && audioData.length > 0) {
+      // Log first 20 bytes to verify it's valid audio (webm starts with 0x1A 0x45 0xDF 0xA3)
+      const first20 = audioData.slice(0, 20);
+      console.log('[WebRTCHost] transcribe_local - first 20 bytes:', first20);
+      console.log('[WebRTCHost] transcribe_local - last 20 bytes:', audioData.slice(-20));
+      // Check for webm magic bytes (EBML header)
+      const isWebm = first20[0] === 0x1A && first20[1] === 0x45 && first20[2] === 0xDF && first20[3] === 0xA3;
+      console.log('[WebRTCHost] transcribe_local - looks like valid webm:', isWebm);
+    } else {
+      console.error('[WebRTCHost] transcribe_local - audioData is empty or invalid!');
+    }
+
     return await invoke<{ text: string }>('transcribe_local', {
-      audioData: params.audioData as number[],
-      model: params.model as string,
+      audioData,
+      model,
     });
   },
 

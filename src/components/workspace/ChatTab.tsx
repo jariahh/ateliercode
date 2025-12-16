@@ -1054,6 +1054,15 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       const arrayBuffer = await audioBlob.arrayBuffer();
       const audioData = Array.from(new Uint8Array(arrayBuffer));
 
+      // Debug: Log audio data info before sending
+      const first20 = audioData.slice(0, 20);
+      console.log('[ChatTab] audioData length:', audioData.length);
+      console.log('[ChatTab] audioData first 20 bytes:', first20);
+      console.log('[ChatTab] audioData last 20 bytes:', audioData.slice(-20));
+      // Check for webm magic bytes (EBML header: 0x1A 0x45 0xDF 0xA3)
+      const isWebm = first20[0] === 0x1A && first20[1] === 0x45 && first20[2] === 0xDF && first20[3] === 0xA3;
+      console.log('[ChatTab] looks like valid webm:', isWebm);
+
       let transcribedText: string;
 
       if (whisperSettings.provider === 'openai') {
