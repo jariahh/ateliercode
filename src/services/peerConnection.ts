@@ -15,7 +15,7 @@ interface ICEServer {
 }
 
 interface PeerMessage {
-  type: 'request' | 'response' | 'event';
+  type: 'request' | 'response' | 'event' | 'chunk';
   id?: string;
   command?: string;
   params?: Record<string, unknown>;
@@ -24,7 +24,14 @@ interface PeerMessage {
   error?: string;
   event?: string;
   payload?: unknown;
+  // Chunking fields
+  chunkIndex?: number;
+  totalChunks?: number;
+  chunkData?: string;
 }
+
+// Maximum chunk size (16KB to be safe across browsers)
+const MAX_CHUNK_SIZE = 16 * 1024;
 
 type PeerEventHandler = (event: string, payload: unknown) => void;
 type DisconnectHandler = () => void;
@@ -39,6 +46,8 @@ class PeerConnection {
   private eventHandlers: PeerEventHandler[] = [];
   private disconnectHandlers: DisconnectHandler[] = [];
   private isInitiator = false;
+  // Track incoming chunked messages
+  private pendingChunks = new Map<string, { chunks: string[]; totalChunks: number }>();
 
   /**
    * Fetch ICE server configuration from the signaling server
@@ -203,6 +212,39 @@ class PeerConnection {
   }
 
   /**
+   * Send a message, chunking if necessary for large payloads
+   */
+  private sendChunkedMessage(message: PeerMessage): void {
+    const messageStr = JSON.stringify(message);
+
+    // If message fits in one chunk, send directly
+    if (messageStr.length <= MAX_CHUNK_SIZE) {
+      this.dataChannel!.send(messageStr);
+      return;
+    }
+
+    // Split into chunks
+    const totalChunks = Math.ceil(messageStr.length / MAX_CHUNK_SIZE);
+    console.log(`[PeerConnection] Sending large message in ${totalChunks} chunks (${messageStr.length} bytes)`);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * MAX_CHUNK_SIZE;
+      const end = Math.min(start + MAX_CHUNK_SIZE, messageStr.length);
+      const chunkData = messageStr.slice(start, end);
+
+      const chunkMessage: PeerMessage = {
+        type: 'chunk',
+        id: message.id,
+        chunkIndex: i,
+        totalChunks,
+        chunkData,
+      };
+
+      this.dataChannel!.send(JSON.stringify(chunkMessage));
+    }
+  }
+
+  /**
    * Send a command to the remote machine and wait for response
    */
   async sendCommand<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -221,15 +263,15 @@ class PeerConnection {
         params,
       };
 
-      this.dataChannel!.send(JSON.stringify(message));
+      this.sendChunkedMessage(message);
 
-      // Timeout after 30 seconds
+      // Timeout after 60 seconds (longer for large payloads like audio)
       setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
           reject(new Error('Request timeout'));
         }
-      }, 30000);
+      }, 60000);
     });
   }
 
@@ -370,6 +412,11 @@ class PeerConnection {
 
   private handlePeerMessage(message: PeerMessage): void {
     switch (message.type) {
+      case 'chunk':
+        // Handle chunked message reassembly
+        this.handleChunk(message);
+        break;
+
       case 'response':
         // Handle response to pending request
         if (message.id && this.pendingRequests.has(message.id)) {
@@ -399,7 +446,8 @@ class PeerConnection {
           // Execute the command and send response
           handleWebRTCCommand(message).then((response) => {
             if (this.dataChannel && this.dataChannel.readyState === 'open') {
-              this.dataChannel.send(JSON.stringify(response));
+              // Response might also be large, so use chunked sending
+              this.sendChunkedMessage(response);
             }
           });
         } else {
@@ -415,6 +463,44 @@ class PeerConnection {
           }
         }
         break;
+    }
+  }
+
+  /**
+   * Handle incoming chunk and reassemble when complete
+   */
+  private handleChunk(chunk: PeerMessage): void {
+    if (!chunk.id || chunk.chunkIndex === undefined || !chunk.totalChunks || !chunk.chunkData) {
+      console.error('[PeerConnection] Invalid chunk message');
+      return;
+    }
+
+    // Get or create pending chunk assembly
+    let pending = this.pendingChunks.get(chunk.id);
+    if (!pending) {
+      pending = { chunks: new Array(chunk.totalChunks).fill(null), totalChunks: chunk.totalChunks };
+      this.pendingChunks.set(chunk.id, pending);
+    }
+
+    // Store chunk data
+    pending.chunks[chunk.chunkIndex] = chunk.chunkData;
+
+    // Check if all chunks received
+    const receivedCount = pending.chunks.filter(c => c !== null).length;
+    if (receivedCount === pending.totalChunks) {
+      // Reassemble and process
+      const fullMessage = pending.chunks.join('');
+      this.pendingChunks.delete(chunk.id);
+
+      console.log(`[PeerConnection] Reassembled chunked message (${fullMessage.length} bytes)`);
+
+      try {
+        const reassembledMessage = JSON.parse(fullMessage) as PeerMessage;
+        // Process the reassembled message
+        this.handlePeerMessage(reassembledMessage);
+      } catch (error) {
+        console.error('[PeerConnection] Failed to parse reassembled message:', error);
+      }
     }
   }
 
@@ -516,6 +602,7 @@ class PeerConnection {
     this.connectionId = null;
     this.targetMachineId = null;
     this.pendingRequests.clear();
+    this.pendingChunks.clear();
 
     // Notify disconnect handlers if we were previously connected
     if (wasConnected) {
