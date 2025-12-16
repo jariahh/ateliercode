@@ -19,8 +19,9 @@ export interface ChatTab {
 }
 
 // Helper to check if we should use WebRTC
+// Only use WebRTC when this machine is the CLIENT (web app connecting to desktop)
 function useWebRTC(): boolean {
-  return peerConnection.isConnected;
+  return peerConnection.isClient;
 }
 
 /**

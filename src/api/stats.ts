@@ -7,7 +7,8 @@ import type { ProjectStats } from '../types/tauri';
  * Get project statistics
  */
 export async function getProjectStats(projectId: string): Promise<ProjectStats> {
-  if (peerConnection.isConnected) {
+  // Only use WebRTC when this machine is the CLIENT (web app connecting to desktop)
+  if (peerConnection.isClient) {
     return peerConnection.sendCommand<ProjectStats>('get_project_stats', { projectId });
   }
   return await invoke<ProjectStats>('get_project_stats', { projectId });

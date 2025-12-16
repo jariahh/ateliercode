@@ -22,9 +22,10 @@ import { parseAskUserQuestion } from '../lib/parseAskUserQuestion';
 import type { ChatMessage, MessageMetadata } from '../components/workspace/ChatTab';
 import { peerConnection } from './peerConnection';
 
-// Check if we're in web mode (connected via WebRTC, not local Tauri)
+// Check if we're in web mode (connected via WebRTC as CLIENT, not local Tauri)
+// Only clients should use WebRTC for session watching - hosts use local Tauri API
 function isWebMode(): boolean {
-  return peerConnection.isConnected;
+  return peerConnection.isClient;
 }
 
 // Track whether we've set up the WebRTC event listener

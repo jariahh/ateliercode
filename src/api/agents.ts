@@ -36,7 +36,8 @@ interface AgentInfoResponse {
 export async function detectAgents(): Promise<DetectedAgent[]> {
   let agents: AgentInfoResponse[];
 
-  if (peerConnection.isConnected) {
+  // Only use WebRTC when this machine is the CLIENT (web app connecting to desktop)
+  if (peerConnection.isClient) {
     agents = await peerConnection.sendCommand<AgentInfoResponse[]>('detect_agents', {});
   } else {
     agents = await invoke<AgentInfoResponse[]>('detect_agents');

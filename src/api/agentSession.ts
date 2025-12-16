@@ -3,8 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { peerConnection } from '../services/peerConnection';
 
 // Helper to check if we should use WebRTC
+// Only use WebRTC when this machine is the CLIENT (web app connecting to desktop)
+// Hosts (desktop) should always use local Tauri invoke
 function useWebRTC(): boolean {
-  return peerConnection.isConnected;
+  return peerConnection.isClient;
 }
 
 /**
