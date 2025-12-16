@@ -384,6 +384,42 @@ class ServerConnection {
     }
 
     console.log(`[ServerConnection] Machine ${name} is now ${isOnline ? 'online' : 'offline'}`);
+
+    // Auto-reconnect: If this machine just came online and was our last connection, reconnect
+    if (isOnline) {
+      const { lastConnectedMachineId, selectedMachineId, clearLastConnectedMachine, selectMachine } = useMachineStore.getState();
+
+      if (lastConnectedMachineId === machineId && !selectedMachineId) {
+        console.log(`[ServerConnection] Auto-reconnecting to last connected machine: ${name}`);
+
+        // Clear the last connected machine to prevent multiple reconnect attempts
+        clearLastConnectedMachine();
+
+        // Trigger reconnection by selecting the machine
+        // The MachineSelector's handleSelectMachine effect will handle the WebRTC connection
+        selectMachine(machineId);
+
+        // Import peerConnection and initiate connection
+        const { peerConnection } = await import('./peerConnection');
+        const { switchToWebRTCBackend } = await import('./backend');
+        const { useProjectStore } = await import('../stores/projectStore');
+
+        try {
+          const connected = await peerConnection.connect(machineId);
+          if (connected) {
+            console.log('[ServerConnection] Auto-reconnect successful');
+            switchToWebRTCBackend();
+            await useProjectStore.getState().loadProjects();
+          } else {
+            console.error('[ServerConnection] Auto-reconnect failed');
+            selectMachine(null);
+          }
+        } catch (error) {
+          console.error('[ServerConnection] Auto-reconnect error:', error);
+          selectMachine(null);
+        }
+      }
+    }
   }
 
   private async handleConnectionRequest(message: WSMessage): Promise<void> {

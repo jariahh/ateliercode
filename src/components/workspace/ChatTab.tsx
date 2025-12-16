@@ -175,6 +175,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   const flushQueue = useChatStore((state) => state.flushQueue);
   const dequeueMessage = useChatStore((state) => state.dequeueMessage);
 
+  // "Load more" functionality for older messages
+  const prependMessages = useChatStore((state) => state.prependMessages);
+  const historyMeta = useChatStore((state) => state.getHistoryMeta(activeTabId));
+  const hasMoreMessages = useChatStore((state) => state.hasMoreMessages(activeTabId));
+
   // Debug logging
   console.log('[ChatTab] Rendering with projectId:', projectId, 'messages:', messages.length);
   const [inputValue, setInputValue] = useState('');
@@ -691,8 +696,9 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         }
       }
 
-      if (totalCount > MAX_MESSAGES) {
-        console.log(`[ChatTab] Loaded ${allMessages.length} of ${totalCount} messages (limited to most recent ${MAX_MESSAGES})`);
+      const moreAvailable = totalCount > allMessages.length;
+      if (moreAvailable) {
+        console.log(`[ChatTab] Loaded ${allMessages.length} of ${totalCount} messages (more available)`);
       } else {
         console.log(`[ChatTab] Loaded ${allMessages.length} messages total`);
       }
@@ -700,8 +706,15 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       // Sort by timestamp to ensure chronological order
       const loadedMessages = allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-      // Set messages
-      setMessages(activeTabId, loadedMessages);
+      // Set messages with history metadata for "load more" feature
+      setMessages(activeTabId, loadedMessages, {
+        totalCount,
+        loadedCount: loadedMessages.length,
+        hasMore: moreAvailable,
+        currentOffset: offset,
+        cliSessionId,
+        pluginName,
+      });
 
       // Create an AgentSession object for display
       const resumedAgentSession: AgentSession = {
@@ -739,41 +752,41 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     }
   };
 
-  // Load more historical messages
+  // Load more historical messages (uses store-based metadata)
   const loadMoreMessages = async () => {
-    const cliSessionId = activeSession?.claude_session_id;
-    if (!cliSessionId || !historyHasMore || isLoadingMore || !currentAgentType) {
+    if (!historyMeta || !historyMeta.hasMore || isLoadingMore) {
+      console.log('[ChatTab] Cannot load more:', { historyMeta, isLoadingMore });
       return;
     }
 
+    const { cliSessionId, pluginName, currentOffset } = historyMeta;
+    const PAGE_SIZE = 20;
+
     setIsLoadingMore(true);
     try {
-      const pluginName = currentAgentType.toLowerCase().replace(/\s+/g, '-');
-      console.log(`[ChatTab] Loading more messages: offset=${historyOffset}, limit=${MESSAGES_PER_PAGE}`);
+      console.log(`[ChatTab] Loading more messages: offset=${currentOffset}, limit=${PAGE_SIZE}`);
 
       const history = await pluginChatApi.getChatHistoryPaginated(
         pluginName,
         cliSessionId,
-        historyOffset,
-        MESSAGES_PER_PAGE
+        currentOffset,
+        PAGE_SIZE
       );
 
       const newMessages: ChatMessage[] = history.messages.map((msg) => ({
-        id: msg.id,  // Use ID from plugin directly
+        id: msg.id,
         role: msg.role as 'user' | 'assistant',
         content: msg.content,
-        timestamp: new Date(msg.timestamp * 1000),  // Convert seconds to milliseconds
+        timestamp: new Date(msg.timestamp * 1000),
         status: 'completed' as const,
         metadata: msg.metadata as MessageMetadata | undefined,
       })).reverse(); // Reverse to get chronological order (oldest first)
 
       console.log(`[ChatTab] Loaded ${newMessages.length} more messages (has_more: ${history.has_more})`);
 
-      // Prepend older messages to the beginning of the array
-      const currentMessages = useChatStore.getState().getMessages(activeTabId);
-      setMessages(activeTabId, [...newMessages, ...currentMessages]);
-      setHistoryOffset((prev) => prev + MESSAGES_PER_PAGE);
-      setHistoryHasMore(history.has_more);
+      // Prepend older messages using the store's prependMessages function
+      const newOffset = currentOffset + PAGE_SIZE;
+      prependMessages(activeTabId, newMessages, newOffset);
     } catch (err) {
       console.error('Failed to load more messages:', err);
       setError(`Failed to load more messages: ${err}`);
@@ -1245,7 +1258,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         ) : (
           <>
             {/* Load More Button */}
-            {historyHasMore && (
+            {hasMoreMessages && historyMeta && (
               <div className="flex justify-center py-4">
                 <button
                   onClick={loadMoreMessages}
@@ -1260,8 +1273,8 @@ export default function ChatTab({ projectId }: ChatTabProps) {
                   ) : (
                     <>
                       <History className="w-4 h-4" />
-                      Load {Math.min(MESSAGES_PER_PAGE, historyTotalCount - historyOffset)} more messages
-                      ({historyTotalCount - historyOffset} remaining)
+                      Load more messages
+                      ({historyMeta.totalCount - historyMeta.loadedCount} older messages available)
                     </>
                   )}
                 </button>

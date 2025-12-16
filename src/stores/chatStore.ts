@@ -7,6 +7,16 @@ const MAX_MESSAGES_PER_TAB = 500;
 // Prune to this many messages when limit is exceeded
 const PRUNE_TO_COUNT = 300;
 
+// Track message history metadata (for "load more" feature)
+interface MessageHistoryMeta {
+  totalCount: number;      // Total messages in the session
+  loadedCount: number;     // How many we've loaded so far
+  hasMore: boolean;        // Whether there are more to load
+  currentOffset: number;   // Current pagination offset
+  cliSessionId: string;    // Session ID for loading more
+  pluginName: string;      // Plugin name for loading more
+}
+
 interface ChatState {
   // Messages per tab (keyed by tabId for proper isolation)
   messagesByTab: Map<string, ChatMessage[]>;
@@ -21,11 +31,17 @@ interface ChatState {
   // These are messages the user typed while the agent was processing
   pendingQueueByTab: Map<string, string[]>;
 
+  // History metadata per tab (for "load more" feature)
+  historyMetaByTab: Map<string, MessageHistoryMeta>;
+
   // Get messages for a tab
   getMessages: (tabId: string) => ChatMessage[];
 
-  // Set messages for a tab
-  setMessages: (tabId: string, messages: ChatMessage[]) => void;
+  // Set messages for a tab (with optional history metadata)
+  setMessages: (tabId: string, messages: ChatMessage[], historyMeta?: MessageHistoryMeta) => void;
+
+  // Prepend older messages to a tab (for "load more")
+  prependMessages: (tabId: string, messages: ChatMessage[], newOffset: number) => void;
 
   // Add a message to a tab
   addMessage: (tabId: string, message: ChatMessage) => void;
@@ -62,6 +78,12 @@ interface ChatState {
 
   // Check if queue has messages
   hasQueuedMessages: (tabId: string) => boolean;
+
+  // Get history metadata for a tab
+  getHistoryMeta: (tabId: string) => MessageHistoryMeta | null;
+
+  // Check if tab has more messages to load
+  hasMoreMessages: (tabId: string) => boolean;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -69,15 +91,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messageIdsByTab: new Map(),
   typingByTab: new Map(),
   pendingQueueByTab: new Map(),
+  historyMetaByTab: new Map(),
 
   getMessages: (tabId: string) => {
     return get().messagesByTab.get(tabId) || [];
   },
 
-  setMessages: (tabId: string, messages: ChatMessage[]) => {
+  setMessages: (tabId: string, messages: ChatMessage[], historyMeta?: MessageHistoryMeta) => {
     set((state) => {
       const newMap = new Map(state.messagesByTab);
       const newIdMap = new Map(state.messageIdsByTab);
+      const newMetaMap = new Map(state.historyMetaByTab);
 
       // Build ID set for fast lookups
       const idSet = new Set(messages.map(m => m.id));
@@ -85,9 +109,60 @@ export const useChatStore = create<ChatState>((set, get) => ({
       newMap.set(tabId, messages);
       newIdMap.set(tabId, idSet);
 
+      // Store history metadata if provided
+      if (historyMeta) {
+        newMetaMap.set(tabId, historyMeta);
+      } else {
+        newMetaMap.delete(tabId);
+      }
+
       return {
         messagesByTab: newMap,
-        messageIdsByTab: newIdMap
+        messageIdsByTab: newIdMap,
+        historyMetaByTab: newMetaMap,
+      };
+    });
+  },
+
+  prependMessages: (tabId: string, messages: ChatMessage[], newOffset: number) => {
+    set((state) => {
+      const newMap = new Map(state.messagesByTab);
+      const newIdMap = new Map(state.messageIdsByTab);
+      const newMetaMap = new Map(state.historyMetaByTab);
+
+      const currentMessages = newMap.get(tabId) || [];
+      const currentIdSet = newIdMap.get(tabId) || new Set();
+      const currentMeta = newMetaMap.get(tabId);
+
+      // Filter out duplicates
+      const newMessages = messages.filter(m => !currentIdSet.has(m.id));
+
+      // Prepend new messages (they're older)
+      const combinedMessages = [...newMessages, ...currentMessages];
+
+      // Update ID set
+      const combinedIdSet = new Set(currentIdSet);
+      newMessages.forEach(m => combinedIdSet.add(m.id));
+
+      newMap.set(tabId, combinedMessages);
+      newIdMap.set(tabId, combinedIdSet);
+
+      // Update history metadata
+      if (currentMeta) {
+        newMetaMap.set(tabId, {
+          ...currentMeta,
+          loadedCount: combinedMessages.length,
+          currentOffset: newOffset,
+          hasMore: newOffset < currentMeta.totalCount,
+        });
+      }
+
+      console.log(`[ChatStore] Prepended ${newMessages.length} messages to tab ${tabId}, total: ${combinedMessages.length}`);
+
+      return {
+        messagesByTab: newMap,
+        messageIdsByTab: newIdMap,
+        historyMetaByTab: newMetaMap,
       };
     });
   },
@@ -257,4 +332,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const queue = get().pendingQueueByTab.get(tabId);
     return queue !== undefined && queue.length > 0;
   },
+
+  getHistoryMeta: (tabId: string) => {
+    return get().historyMetaByTab.get(tabId) || null;
+  },
+
+  hasMoreMessages: (tabId: string) => {
+    const meta = get().historyMetaByTab.get(tabId);
+    return meta ? meta.hasMore : false;
+  },
 }));
+
+// Export the type for use in components
+export type { MessageHistoryMeta };

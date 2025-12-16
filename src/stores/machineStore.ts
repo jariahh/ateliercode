@@ -18,12 +18,17 @@ interface MachineState {
   // Currently selected remote machine (null = local, 'cloud' = web mode)
   selectedMachineId: string | null;
 
+  // Last connected machine (for auto-reconnect when machine comes back online)
+  lastConnectedMachineId: string | null;
+
   // Actions
   setConnectionState: (state: ConnectionState) => void;
   setLocalMachineId: (id: string | null) => void;
   setMachines: (machines: MachineInfo[]) => void;
   updateMachineStatus: (machineId: string, isOnline: boolean) => void;
   selectMachine: (machineId: string | null) => void;
+  setLastConnectedMachine: (machineId: string | null) => void;
+  clearLastConnectedMachine: () => void;
 
   // Computed
   isRemoteMode: () => boolean;
@@ -38,6 +43,7 @@ export const useMachineStore = create<MachineState>()((set, get) => ({
   localMachineId: null,
   machines: [],
   selectedMachineId: null,
+  lastConnectedMachineId: null,
 
   setConnectionState: (connectionState) => set({ connectionState }),
 
@@ -53,6 +59,10 @@ export const useMachineStore = create<MachineState>()((set, get) => ({
     })),
 
   selectMachine: (selectedMachineId) => set({ selectedMachineId }),
+
+  setLastConnectedMachine: (lastConnectedMachineId) => set({ lastConnectedMachineId }),
+
+  clearLastConnectedMachine: () => set({ lastConnectedMachineId: null }),
 
   isRemoteMode: () => {
     const { selectedMachineId, localMachineId } = get();

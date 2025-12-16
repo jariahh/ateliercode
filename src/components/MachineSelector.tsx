@@ -49,10 +49,18 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Get the store functions for auto-reconnect
+  const setLastConnectedMachine = useMachineStore((state) => state.setLastConnectedMachine);
+
   // Listen for WebRTC disconnect events
   useEffect(() => {
     const unsubscribe = peerConnection.onDisconnect(() => {
-      console.log('[MachineSelector] WebRTC disconnected, clearing selection and projects');
+      console.log('[MachineSelector] WebRTC disconnected, saving last connected and clearing selection');
+      // Save the current machine ID for auto-reconnect
+      if (selectedMachineId && selectedMachineId !== localMachineId) {
+        setLastConnectedMachine(selectedMachineId);
+        console.log('[MachineSelector] Saved last connected machine for auto-reconnect:', selectedMachineId);
+      }
       // Clear the selected machine
       selectMachine(null);
       // Clear the projects list since they're no longer accessible
@@ -60,7 +68,7 @@ export default function MachineSelector({ isCollapsed }: MachineSelectorProps) {
     });
 
     return () => unsubscribe();
-  }, [selectMachine, clearProjects]);
+  }, [selectMachine, clearProjects, selectedMachineId, localMachineId, setLastConnectedMachine]);
 
   // In Tauri mode, always show (local machine is always available)
   // In web mode, always show (to prompt sign in or show machines)
