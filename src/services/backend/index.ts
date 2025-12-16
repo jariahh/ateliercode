@@ -145,16 +145,19 @@ export function initializeBackend(): IBackend {
     return backendInstance;
   }
 
-  // Check for Tauri environment
+  // Check for Tauri environment - always use TauriBackend for local operations
+  // This includes when desktop is hosting WebRTC connections (isHost = true)
   if (isTauriAvailable()) {
     console.log('[Backend] Initializing TauriBackend');
     backendInstance = new TauriBackend();
     return backendInstance;
   }
 
-  // Check for WebRTC connection (web client connected to remote machine)
-  if (peerConnection.isConnected) {
-    console.log('[Backend] Initializing WebRTCBackend');
+  // Check for WebRTC connection as CLIENT (web client connected to remote machine)
+  // Only use WebRTCBackend when this machine initiated the connection (is the client)
+  // Hosts should use TauriBackend (handled above)
+  if (peerConnection.isClient) {
+    console.log('[Backend] Initializing WebRTCBackend (connected as client)');
     backendInstance = new WebRTCBackend();
     return backendInstance;
   }
@@ -166,12 +169,19 @@ export function initializeBackend(): IBackend {
 }
 
 /**
- * Switch to WebRTC backend when connected to a remote machine
- * Call this after establishing a WebRTC connection
+ * Switch to WebRTC backend when connected to a remote machine as a CLIENT
+ * Call this after establishing a WebRTC connection from the web client
+ * NOTE: This should only be called when this machine is the CLIENT (initiator)
  */
 export function switchToWebRTCBackend(): IBackend {
   if (!peerConnection.isConnected) {
     throw new Error('Cannot switch to WebRTC backend: not connected');
+  }
+  // Safety check: don't switch to WebRTC if this machine is the HOST
+  // Hosts should always use TauriBackend for local operations
+  if (peerConnection.isHost) {
+    console.warn('[Backend] Ignoring switchToWebRTCBackend: this machine is the host, not the client');
+    return getBackend();
   }
   console.log('[Backend] Switching to WebRTCBackend');
   backendInstance = new WebRTCBackend();

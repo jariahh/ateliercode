@@ -295,6 +295,22 @@ class PeerConnection {
     return this.dataChannel?.readyState === 'open';
   }
 
+  /**
+   * Check if this machine is the host (responder) of the connection
+   * Hosts receive commands from clients and execute them locally
+   */
+  get isHost(): boolean {
+    return this.isConnected && !this.isInitiator;
+  }
+
+  /**
+   * Check if this machine is the client (initiator) of the connection
+   * Clients send commands to the host for execution
+   */
+  get isClient(): boolean {
+    return this.isConnected && this.isInitiator;
+  }
+
   private setupPeerConnectionHandlers(): void {
     if (!this.pc) return;
 
