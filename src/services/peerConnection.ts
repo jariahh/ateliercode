@@ -214,7 +214,7 @@ class PeerConnection {
   /**
    * Send a message, chunking if necessary for large payloads
    */
-  private sendChunkedMessage(message: PeerMessage): void {
+  private async sendChunkedMessage(message: PeerMessage): Promise<void> {
     const messageStr = JSON.stringify(message);
 
     // If message fits in one chunk, send directly
@@ -240,8 +240,22 @@ class PeerConnection {
         chunkData,
       };
 
+      // Wait for buffer to drain if needed (prevent overflow)
+      // bufferedAmount > 64KB means we're sending faster than the network can handle
+      while (this.dataChannel!.bufferedAmount > 65536) {
+        console.log(`[PeerConnection] Waiting for buffer to drain (${this.dataChannel!.bufferedAmount} bytes buffered)`);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
       this.dataChannel!.send(JSON.stringify(chunkMessage));
+
+      // Log progress for large transfers
+      if (totalChunks > 10 && (i + 1) % 10 === 0) {
+        console.log(`[PeerConnection] Sent chunk ${i + 1}/${totalChunks}`);
+      }
     }
+
+    console.log(`[PeerConnection] All ${totalChunks} chunks sent`);
   }
 
   /**
@@ -252,26 +266,29 @@ class PeerConnection {
       throw new Error('Not connected to remote machine');
     }
 
+    const id = crypto.randomUUID();
+
+    const message: PeerMessage = {
+      type: 'request',
+      id,
+      command,
+      params,
+    };
+
+    // Send the message (await chunked sending if needed)
+    await this.sendChunkedMessage(message);
+
+    // Now wait for response
     return new Promise((resolve, reject) => {
-      const id = crypto.randomUUID();
       this.pendingRequests.set(id, { resolve: resolve as (v: unknown) => void, reject });
 
-      const message: PeerMessage = {
-        type: 'request',
-        id,
-        command,
-        params,
-      };
-
-      this.sendChunkedMessage(message);
-
-      // Timeout after 60 seconds (longer for large payloads like audio)
+      // Timeout after 120 seconds (longer for large payloads like audio transcription)
       setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
           reject(new Error('Request timeout'));
         }
-      }, 60000);
+      }, 120000);
     });
   }
 
@@ -471,13 +488,19 @@ class PeerConnection {
    */
   private handleChunk(chunk: PeerMessage): void {
     if (!chunk.id || chunk.chunkIndex === undefined || !chunk.totalChunks || !chunk.chunkData) {
-      console.error('[PeerConnection] Invalid chunk message');
+      console.error('[PeerConnection] Invalid chunk message:', {
+        hasId: !!chunk.id,
+        chunkIndex: chunk.chunkIndex,
+        totalChunks: chunk.totalChunks,
+        hasChunkData: !!chunk.chunkData,
+      });
       return;
     }
 
     // Get or create pending chunk assembly
     let pending = this.pendingChunks.get(chunk.id);
     if (!pending) {
+      console.log(`[PeerConnection] Starting to receive chunked message: ${chunk.totalChunks} chunks expected`);
       pending = { chunks: new Array(chunk.totalChunks).fill(null), totalChunks: chunk.totalChunks };
       this.pendingChunks.set(chunk.id, pending);
     }
@@ -487,12 +510,18 @@ class PeerConnection {
 
     // Check if all chunks received
     const receivedCount = pending.chunks.filter(c => c !== null).length;
+
+    // Log progress for large transfers
+    if (pending.totalChunks > 10 && receivedCount % 10 === 0) {
+      console.log(`[PeerConnection] Received chunk ${receivedCount}/${pending.totalChunks}`);
+    }
+
     if (receivedCount === pending.totalChunks) {
       // Reassemble and process
       const fullMessage = pending.chunks.join('');
       this.pendingChunks.delete(chunk.id);
 
-      console.log(`[PeerConnection] Reassembled chunked message (${fullMessage.length} bytes)`);
+      console.log(`[PeerConnection] All chunks received! Reassembled message: ${fullMessage.length} bytes`);
 
       try {
         const reassembledMessage = JSON.parse(fullMessage) as PeerMessage;
