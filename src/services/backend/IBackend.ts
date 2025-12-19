@@ -109,7 +109,7 @@ export interface IProjectBackend {
  */
 export interface IAgentBackend {
   start(projectId: string, agentType: string, resumeSessionId?: string): Promise<AgentSession>;
-  send(sessionId: string, message: string): Promise<void>;
+  send(sessionId: string, message: string, pluginName?: string): Promise<void>;
   readOutput(sessionId: string, timeoutMs?: number): Promise<string[]>;
   stop(sessionId: string): Promise<void>;
   getStatus(sessionId: string): Promise<AgentSession>;

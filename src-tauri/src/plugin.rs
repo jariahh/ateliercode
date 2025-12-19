@@ -138,6 +138,11 @@ pub trait AgentPlugin: Send + Sync {
 
     /// Get plugin capabilities
     fn get_capabilities(&self) -> Vec<PluginCapability>;
+
+    /// Get configurable CLI flags that this plugin exposes
+    fn get_available_flags(&self) -> Vec<PluginFlag> {
+        Vec::new() // Default: no configurable flags
+    }
 }
 
 // ============================================================================
@@ -528,6 +533,54 @@ pub enum PluginCapability {
 }
 
 // ============================================================================
+// Plugin Flags (Configurable CLI Options)
+// ============================================================================
+
+/// Type of flag input
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FlagType {
+    /// Boolean toggle (presence or absence of flag)
+    Toggle,
+    /// Selection from predefined options
+    Select,
+    /// Free-form string value
+    String,
+}
+
+/// An option for Select-type flags
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlagOption {
+    /// The value to pass to the CLI
+    pub value: String,
+    /// Human-readable label
+    pub label: String,
+    /// Description of what this option does
+    pub description: String,
+}
+
+/// Describes a configurable CLI flag that the plugin exposes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginFlag {
+    /// Unique identifier for this flag (e.g., "permission_mode")
+    pub id: String,
+    /// The CLI flag string (e.g., "--permission-mode")
+    pub flag: String,
+    /// Human-readable label for the UI
+    pub label: String,
+    /// Description of what this flag does
+    pub description: String,
+    /// Type of input
+    pub flag_type: FlagType,
+    /// Default value
+    pub default_value: String,
+    /// Available options (for Select type)
+    pub options: Vec<FlagOption>,
+    /// Category for grouping in UI (e.g., "permissions", "output", "model")
+    pub category: String,
+}
+
+// ============================================================================
 // Plugin Manager
 // ============================================================================
 
@@ -645,8 +698,14 @@ impl PluginManager {
                 capabilities: p.get_capabilities(),
                 icon: p.icon().map(|s| s.to_string()),
                 color: p.color().map(|s| s.to_string()),
+                flags: p.get_available_flags(),
             })
             .collect()
+    }
+
+    /// Get available flags for a specific plugin
+    pub fn get_plugin_flags(&self, plugin_name: &str) -> Option<Vec<PluginFlag>> {
+        self.plugins.get(plugin_name).map(|p| p.get_available_flags())
     }
 }
 
@@ -661,4 +720,6 @@ pub struct PluginInfo {
     pub icon: Option<String>,
     /// Primary color name for theming (e.g., "purple", "blue", "green")
     pub color: Option<String>,
+    /// Configurable CLI flags
+    pub flags: Vec<PluginFlag>,
 }

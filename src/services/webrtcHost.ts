@@ -111,6 +111,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     return await invoke<void>('send_to_agent', {
       sessionId: params.sessionId as string,
       message: params.message as string,
+      pluginName: (params.pluginName as string | null) || null,
     });
   },
 

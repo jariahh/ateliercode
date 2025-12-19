@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Bot, Loader2, Sparkles, Power, PowerOff, History, X, Mic } from 'lucide-react';
+import { Send, Bot, Loader2, Sparkles, Power, PowerOff, History, X, Mic, Settings } from 'lucide-react';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 import * as agentSessionApi from '../../api/agentSession';
 import * as pluginChatApi from '../../lib/chat';
@@ -23,6 +23,9 @@ import VirtualizedMessageList from '../chat/VirtualizedMessageList';
 import UserPromptDialog from '../chat/UserPromptDialog';
 import ChatTabBar from '../chat/ChatTabBar';
 import VoiceRecordingModal from '../chat/VoiceRecordingModal';
+import PluginSettingsModal from '../modals/PluginSettingsModal';
+import { getPluginFlags } from '../../api/agents';
+import type { PluginFlag } from '../../api/pluginSettings';
 
 // Dynamic processing message generator - creates thousands of unique sayings
 const SAYING_VERBS = [
@@ -210,6 +213,8 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   // Session history is now loaded on-demand via plugin system in SessionHistoryModal
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
+  const [showPluginSettings, setShowPluginSettings] = useState(false);
+  const [pluginFlags, setPluginFlags] = useState<PluginFlag[]>([]);
   const [isWaitingForInput, setIsWaitingForInput] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
   const [pendingUserPrompt, setPendingUserPrompt] = useState<UserPrompt | null>(null);
@@ -935,8 +940,10 @@ export default function ChatTab({ projectId }: ChatTabProps) {
       }
 
       // Send the combined content to the persistent agent session
-      console.log('[ChatTab handleSend] Calling sendToAgent with sessionId:', sessionIdToUse, 'message:', combinedContent);
-      await agentSessionApi.sendToAgent(sessionIdToUse, combinedContent);
+      // Pass the plugin name to use configured CLI flags
+      const pluginName = currentAgentType?.toLowerCase().replace(/\s+/g, '-') || 'claude-code';
+      console.log('[ChatTab handleSend] Calling sendToAgent with sessionId:', sessionIdToUse, 'message:', combinedContent, 'pluginName:', pluginName);
+      await agentSessionApi.sendToAgent(sessionIdToUse, combinedContent, pluginName);
       console.log('[ChatTab handleSend] sendToAgent completed successfully');
 
       // Mark the user message as sent (chat history is managed by CLI plugins)
@@ -1240,6 +1247,24 @@ export default function ChatTab({ projectId }: ChatTabProps) {
             History
           </button>
 
+          <button
+            onClick={async () => {
+              const pluginName = currentAgentType?.toLowerCase().replace(/\s+/g, '-') || 'claude-code';
+              try {
+                const flags = await getPluginFlags(pluginName);
+                setPluginFlags(flags);
+                setShowPluginSettings(true);
+              } catch (err) {
+                console.error('Failed to load plugin flags:', err);
+              }
+            }}
+            className="btn btn-ghost btn-xs gap-1"
+            title="Plugin settings"
+          >
+            <Settings className="w-3 h-3" />
+            Settings
+          </button>
+
           {activeSession ? (
             <button
               onClick={stopSession}
@@ -1474,6 +1499,17 @@ export default function ChatTab({ projectId }: ChatTabProps) {
           onClose={() => setShowSessionHistory(false)}
           isOpen={showSessionHistory}
           activeSessionId={activeSession?.claude_session_id || null}
+        />
+      )}
+
+      {/* Plugin Settings Modal */}
+      {currentAgentType && (
+        <PluginSettingsModal
+          isOpen={showPluginSettings}
+          onClose={() => setShowPluginSettings(false)}
+          pluginName={currentAgentType.toLowerCase().replace(/\s+/g, '-')}
+          pluginDisplayName={currentAgentType}
+          flags={pluginFlags}
         />
       )}
 

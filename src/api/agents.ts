@@ -55,3 +55,37 @@ export async function detectAgents(): Promise<DetectedAgent[]> {
     color: agent.color ?? undefined,
   }));
 }
+
+// Import plugin flag types
+import type { PluginFlag } from './pluginSettings';
+
+// Response from list_plugins includes flags
+interface PluginInfoResponse {
+  name: string;
+  display_name: string;
+  version: string;
+  description: string;
+  capabilities: string[];
+  icon: string | null;
+  color: string | null;
+  flags: PluginFlag[];
+}
+
+/**
+ * Get all plugins with their available flags
+ */
+export async function getPlugins(): Promise<PluginInfoResponse[]> {
+  if (peerConnection.isClient) {
+    return await peerConnection.sendCommand<PluginInfoResponse[]>('list_plugins', {});
+  }
+  return await invoke<PluginInfoResponse[]>('list_plugins');
+}
+
+/**
+ * Get flags for a specific plugin
+ */
+export async function getPluginFlags(pluginName: string): Promise<PluginFlag[]> {
+  const plugins = await getPlugins();
+  const plugin = plugins.find(p => p.name === pluginName);
+  return plugin?.flags ?? [];
+}

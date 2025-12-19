@@ -203,7 +203,14 @@ impl AgentManager {
 
     /// Send a message to an agent session using headless mode
     /// If a process is already running, it will be killed first (interrupt + resume pattern)
-    pub async fn send_message(&self, session_id: &str, message: String) -> Result<()> {
+    ///
+    /// `flag_settings` can be provided to customize CLI flags (e.g., permission_mode, model)
+    pub async fn send_message(
+        &self,
+        session_id: &str,
+        message: String,
+        flag_settings: Option<std::collections::HashMap<String, String>>,
+    ) -> Result<()> {
         log::info!("Sending message to session {} (length: {} bytes)", session_id, message.len());
 
         // First, kill any existing process for this session
@@ -220,7 +227,12 @@ impl AgentManager {
         drop(sessions); // Release the read lock
 
         // Get the command based on agent type
-        let (program, args, use_stdin) = self.get_headless_command(&agent_type, &message, claude_session_id.as_deref())?;
+        let (program, args, use_stdin) = self.get_headless_command(
+            &agent_type,
+            &message,
+            claude_session_id.as_deref(),
+            flag_settings.as_ref(),
+        )?;
 
         log::info!("Executing headless command: {} {:?} in {} (use_stdin: {})", program, args, root_path, use_stdin);
 
@@ -534,10 +546,27 @@ impl AgentManager {
     /// Get the appropriate headless command for an agent type
     /// Get the headless command for an agent type.
     /// Returns (program, args, use_stdin) - if use_stdin is true, message should be piped via stdin
-    fn get_headless_command(&self, agent_type: &str, message: &str, claude_session_id: Option<&str>) -> Result<(String, Vec<String>, bool)> {
+    ///
+    /// `flag_settings` is a map of flag_id -> value for user-configured flags
+    fn get_headless_command(
+        &self,
+        agent_type: &str,
+        message: &str,
+        claude_session_id: Option<&str>,
+        flag_settings: Option<&std::collections::HashMap<String, String>>,
+    ) -> Result<(String, Vec<String>, bool)> {
         // Use stdin for large messages to avoid command line length limits
         // Windows has ~32KB limit, Linux ~128KB - use 16KB as safe threshold
         let use_stdin = message.len() > 16 * 1024;
+
+        // Helper to get flag value or default
+        let get_flag = |flag_id: &str, default: &str| -> String {
+            flag_settings
+                .and_then(|settings| settings.get(flag_id))
+                .filter(|v| !v.is_empty())
+                .cloned()
+                .unwrap_or_else(|| default.to_string())
+        };
 
         match agent_type.to_lowercase().as_str() {
             "claude" | "claude-code" => {
@@ -562,10 +591,29 @@ impl AgentManager {
                         args.push(message.to_string()); // The message as argument
                     }
 
+                    // Output format (configurable)
+                    let output_format = get_flag("output_format", "text");
                     args.push("--output-format".to_string());
-                    args.push("text".to_string()); // Plain text output
+                    args.push(output_format);
+
+                    // Permission mode (configurable)
+                    let permission_mode = get_flag("permission_mode", "bypassPermissions");
                     args.push("--permission-mode".to_string());
-                    args.push("bypassPermissions".to_string()); // Bypass all permission prompts including file access
+                    args.push(permission_mode);
+
+                    // Model (configurable, only add if not empty/default)
+                    let model = get_flag("model", "");
+                    if !model.is_empty() {
+                        args.push("--model".to_string());
+                        args.push(model);
+                    }
+
+                    // Max turns (configurable, only add if not 0)
+                    let max_turns = get_flag("max_turns", "0");
+                    if max_turns != "0" {
+                        args.push("--max-turns".to_string());
+                        args.push(max_turns);
+                    }
 
                     Ok(("claude".to_string(), args, use_stdin))
                 } else {

@@ -261,6 +261,15 @@ pub async fn detect_agents(
     Ok(agents)
 }
 
+/// List all loaded plugins with their flags
+#[tauri::command]
+pub async fn list_plugins(
+    plugin_manager: tauri::State<'_, crate::plugin::PluginManager>,
+) -> Result<Vec<crate::plugin::PluginInfo>, String> {
+    log::info!("Listing plugins");
+    Ok(plugin_manager.list_plugins())
+}
+
 /// Open native folder picker dialog
 #[tauri::command]
 pub async fn select_folder(app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -2383,13 +2392,20 @@ pub async fn start_agent_session(
 #[tauri::command]
 pub async fn send_to_agent(
     agent_manager: State<'_, crate::agent_manager::AgentManager>,
+    plugin_settings_manager: State<'_, crate::plugin_settings::PluginSettingsManager>,
     session_id: String,
     message: String,
+    plugin_name: Option<String>,
 ) -> Result<(), String> {
     log::info!("Sending message to agent session {}: {}", session_id, message);
 
+    // Get flag settings for the plugin if plugin_name is provided
+    let flag_settings = plugin_name.as_ref().map(|name| {
+        plugin_settings_manager.get_plugin_settings(name).flags
+    });
+
     agent_manager
-        .send_message(&session_id, message)
+        .send_message(&session_id, message, flag_settings)
         .await
         .map_err(|e| format!("Failed to send message: {}", e))?;
 

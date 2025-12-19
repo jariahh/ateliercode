@@ -58,16 +58,18 @@ export async function startAgentSession(
  * Send a message to an active agent session
  * @param sessionId - The ID of the agent session
  * @param message - The message to send
+ * @param pluginName - Optional plugin name to use for flag settings
  * @returns Promise that resolves when message is sent
  */
 export async function sendToAgent(
   sessionId: string,
-  message: string
+  message: string,
+  pluginName?: string
 ): Promise<void> {
   if (useWebRTC()) {
-    return peerConnection.sendCommand<void>('send_to_agent', { sessionId, message });
+    return peerConnection.sendCommand<void>('send_to_agent', { sessionId, message, pluginName: pluginName || null });
   }
-  return await invoke<void>('send_to_agent', { sessionId, message });
+  return await invoke<void>('send_to_agent', { sessionId, message, pluginName: pluginName || null });
 }
 
 /**

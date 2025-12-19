@@ -96,8 +96,8 @@ class TauriAgentBackend implements IAgentBackend {
     });
   }
 
-  async send(sessionId: string, message: string): Promise<void> {
-    return await invoke<void>('send_to_agent', { sessionId, message });
+  async send(sessionId: string, message: string, pluginName?: string): Promise<void> {
+    return await invoke<void>('send_to_agent', { sessionId, message, pluginName: pluginName || null });
   }
 
   async readOutput(sessionId: string, timeoutMs?: number): Promise<string[]> {

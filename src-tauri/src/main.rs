@@ -14,6 +14,7 @@ mod file_watcher;
 mod models;
 mod output_parser;
 mod plugin;
+mod plugin_settings;
 mod plugins;
 mod project_analyzer;
 mod types;
@@ -60,6 +61,7 @@ fn main() {
             commands::update_project,
             commands::delete_project,
             commands::detect_agents,
+            commands::list_plugins,
             commands::select_folder,
             commands::analyze_project_directory,
             commands::analyze_project_with_ai,
@@ -128,6 +130,12 @@ fn main() {
             commands_whisper::install_whisper,
             commands_whisper::transcribe_local,
             commands_whisper::transcribe_openai,
+            // Plugin settings commands
+            plugin_settings::get_plugin_settings,
+            plugin_settings::get_plugin_flag_value,
+            plugin_settings::set_plugin_flag_value,
+            plugin_settings::set_plugin_settings,
+            plugin_settings::get_all_plugin_settings,
         ])
         .setup(|app| {
             // Initialize database
@@ -173,6 +181,14 @@ fn main() {
 
             app.manage(plugin_manager);
             log::info!("Plugin manager initialized");
+
+            // Initialize plugin settings manager
+            let app_data_dir = app.path().app_data_dir()
+                .expect("Failed to get app data directory");
+            let plugin_settings_manager = plugin_settings::PluginSettingsManager::new(app_data_dir)
+                .expect("Failed to initialize plugin settings manager");
+            app.manage(plugin_settings_manager);
+            log::info!("Plugin settings manager initialized");
 
             #[cfg(debug_assertions)]
             {
