@@ -141,6 +141,8 @@ impl AgentManager {
             .arg("Starting a new session")
             .arg("--output-format")
             .arg("json")
+            .arg("--permission-mode")
+            .arg("bypassPermissions")
             .current_dir(root_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -154,6 +156,8 @@ impl AgentManager {
                 .arg("Starting a new session")
                 .arg("--output-format")
                 .arg("json")
+                .arg("--permission-mode")
+                .arg("bypassPermissions")
                 .current_dir(root_path)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -560,7 +564,8 @@ impl AgentManager {
 
                     args.push("--output-format".to_string());
                     args.push("text".to_string()); // Plain text output
-                    args.push("--dangerously-skip-permissions".to_string()); // Skip all permissions
+                    args.push("--permission-mode".to_string());
+                    args.push("bypassPermissions".to_string()); // Bypass all permission prompts including file access
 
                     Ok(("claude".to_string(), args, use_stdin))
                 } else {
