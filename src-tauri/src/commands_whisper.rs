@@ -137,19 +137,19 @@ pub async fn transcribe_local(
     audio_data: Vec<u8>,
     model: String,
 ) -> Result<TranscriptionResult, String> {
-    log::info!("Transcribing audio locally with model: {}, data size: {} bytes", model, audio_data.len());
+    println!("[WHISPER] Transcribing audio locally with model: {}, data size: {} bytes", model, audio_data.len());
 
     // Debug: Log first and last bytes to verify data integrity
     if audio_data.len() >= 20 {
         let first_20: Vec<u8> = audio_data.iter().take(20).cloned().collect();
         let last_20: Vec<u8> = audio_data.iter().rev().take(20).rev().cloned().collect();
-        log::info!("Audio data first 20 bytes: {:?}", first_20);
-        log::info!("Audio data last 20 bytes: {:?}", last_20);
+        println!("[WHISPER] Audio data first 20 bytes: {:?}", first_20);
+        println!("[WHISPER] Audio data last 20 bytes: {:?}", last_20);
         // Check for webm magic bytes (EBML header: 0x1A 0x45 0xDF 0xA3)
         let is_webm = audio_data[0] == 0x1A && audio_data[1] == 0x45 && audio_data[2] == 0xDF && audio_data[3] == 0xA3;
-        log::info!("Audio appears to be valid webm: {}", is_webm);
+        println!("[WHISPER] Audio appears to be valid webm: {}", is_webm);
     } else {
-        log::warn!("Audio data too short: {} bytes", audio_data.len());
+        println!("[WHISPER] WARNING: Audio data too short: {} bytes", audio_data.len());
     }
 
     // Save audio to temp file (could be webm or wav from frontend)
@@ -165,10 +165,10 @@ pub async fn transcribe_local(
     let written_size = std::fs::metadata(&input_path)
         .map(|m| m.len())
         .unwrap_or(0);
-    log::info!("Written webm file size: {} bytes at {:?}", written_size, input_path);
+    println!("[WHISPER] Written webm file size: {} bytes at {:?}", written_size, input_path);
 
     // Convert to WAV using FFmpeg for reliable Whisper compatibility
-    log::info!("Converting audio to WAV using FFmpeg...");
+    println!("[WHISPER] Converting audio to WAV using FFmpeg...");
     let ffmpeg_result = Command::new("ffmpeg")
         .args([
             "-y",                    // Overwrite output
@@ -185,9 +185,9 @@ pub async fn transcribe_local(
     let ffmpeg_stdout = String::from_utf8_lossy(&ffmpeg_result.stdout);
     let ffmpeg_stderr = String::from_utf8_lossy(&ffmpeg_result.stderr);
     if !ffmpeg_stdout.is_empty() {
-        log::info!("FFmpeg stdout: {}", ffmpeg_stdout);
+        println!("[WHISPER] FFmpeg stdout: {}", ffmpeg_stdout);
     }
-    log::info!("FFmpeg stderr: {}", ffmpeg_stderr);
+    println!("[WHISPER] FFmpeg stderr: {}", ffmpeg_stderr);
 
     // Clean up input file
     let _ = std::fs::remove_file(&input_path);
@@ -200,17 +200,17 @@ pub async fn transcribe_local(
     let wav_size = std::fs::metadata(&wav_path)
         .map(|m| m.len())
         .unwrap_or(0);
-    log::info!("Converted WAV file size: {} bytes at {:?}", wav_size, wav_path);
+    println!("[WHISPER] Converted WAV file size: {} bytes at {:?}", wav_size, wav_path);
 
     // Calculate expected audio duration (16kHz, 16-bit mono = 32000 bytes/sec)
     // WAV header is 44 bytes
     if wav_size > 44 {
         let audio_bytes = wav_size - 44;
         let duration_secs = audio_bytes as f64 / 32000.0;
-        log::info!("Estimated audio duration: {:.2} seconds", duration_secs);
+        println!("[WHISPER] Estimated audio duration: {:.2} seconds", duration_secs);
     }
 
-    log::info!("Audio converted successfully, running Whisper...");
+    println!("[WHISPER] Audio converted successfully, running Whisper...");
 
     // Create Python script for transcription
     let script = format!(
@@ -246,9 +246,9 @@ print(json.dumps(output))
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     // Debug: Log Whisper output
-    log::info!("Whisper stdout: {}", stdout);
+    println!("[WHISPER] Whisper stdout: {}", stdout);
     if !stderr.is_empty() {
-        log::info!("Whisper stderr: {}", stderr);
+        println!("[WHISPER] Whisper stderr: {}", stderr);
     }
 
     if !output.status.success() {
@@ -258,7 +258,7 @@ print(json.dumps(output))
     let result: TranscriptionResult = serde_json::from_str(&stdout)
         .map_err(|e| format!("Failed to parse transcription result: {} - Output: {}", e, stdout))?;
 
-    log::info!("Transcription complete: text='{}', language={:?}, duration={:?}",
+    println!("[WHISPER] Transcription complete: text='{}', language={:?}, duration={:?}",
         result.text, result.language, result.duration);
     Ok(result)
 }

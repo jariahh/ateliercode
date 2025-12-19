@@ -519,10 +519,10 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   // - User closes the tab (handled in tab close logic)
   // - User leaves the workspace entirely (navigate away from project)
 
-  const startNewSession = async (resumeSessionId?: string) => {
+  const startNewSession = async (resumeSessionId?: string): Promise<AgentSession | null> => {
     if (!projectId || !currentAgentType) {
       setError('No project or agent type available');
-      return;
+      return null;
     }
 
     setIsStartingSession(true);
@@ -597,9 +597,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         status: 'completed',
       };
       addMessage(activeTabId, systemMessage);
+      return session;
     } catch (err) {
       console.error('Failed to start session:', err);
       setError(`Failed to start agent session: ${err}`);
+      return null;
     } finally {
       setIsStartingSession(false);
     }
@@ -816,16 +818,32 @@ export default function ChatTab({ projectId }: ChatTabProps) {
     console.log('[ChatTab handleSend] currentAgentType:', currentAgentType);
     console.log('[ChatTab handleSend] isTyping:', isTyping);
 
-    // If no active session, prompt to start one
-    if (!activeSession) {
-      console.log('[ChatTab handleSend] ERROR: No active session');
-      setError('Please start a session first');
-      return;
-    }
-
     if (!projectId || !activeTabId) {
       console.log('[ChatTab handleSend] ERROR: No projectId or activeTabId');
       return;
+    }
+
+    // Track the session we'll use (may be created if none exists)
+    let sessionToUse = activeSession;
+
+    // If no active session, auto-start one
+    if (!sessionToUse) {
+      console.log('[ChatTab handleSend] No active session, auto-starting new session...');
+
+      if (!currentAgentType) {
+        console.log('[ChatTab handleSend] ERROR: No agent type available');
+        setError('No agent type selected');
+        return;
+      }
+
+      const newSession = await startNewSession();
+      if (!newSession) {
+        console.log('[ChatTab handleSend] ERROR: Failed to start session');
+        return; // Error already set by startNewSession
+      }
+
+      sessionToUse = newSession;
+      console.log('[ChatTab handleSend] Auto-started session:', sessionToUse.session_id);
     }
 
     setInputValue('');
@@ -864,18 +882,18 @@ export default function ChatTab({ projectId }: ChatTabProps) {
 
     try {
       // Check if we need to start a new agent session (for resumed sessions)
-      let sessionIdToUse = activeSession.session_id;
+      let sessionIdToUse = sessionToUse.session_id;
       console.log('[ChatTab handleSend] Initial sessionIdToUse:', sessionIdToUse);
 
       // If the session is stopped/completed, we need to start a new agent process
       console.log('[ChatTab handleSend] Checking restart conditions:');
-      console.log('  - status === stopped:', activeSession.status === 'stopped');
-      console.log('  - claude_session_id:', activeSession.claude_session_id);
+      console.log('  - status === stopped:', sessionToUse.status === 'stopped');
+      console.log('  - claude_session_id:', sessionToUse.claude_session_id);
       console.log('  - projectId:', projectId);
       console.log('  - currentAgentType:', currentAgentType);
 
-      if (activeSession.status === 'stopped' && activeSession.claude_session_id && projectId && currentAgentType) {
-        console.log('[ChatTab handleSend] Restarting agent for resumed session with Claude session ID:', activeSession.claude_session_id, 'Agent:', currentAgentType);
+      if (sessionToUse.status === 'stopped' && sessionToUse.claude_session_id && projectId && currentAgentType) {
+        console.log('[ChatTab handleSend] Restarting agent for resumed session with Claude session ID:', sessionToUse.claude_session_id, 'Agent:', currentAgentType);
 
         // Start a new agent session with the Claude resume flag
         const normalizedAgentType = currentAgentType.toLowerCase().replace(/\s+/g, '-');
@@ -884,7 +902,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         const newAgentSession = await agentSessionApi.startAgentSession(
           projectId,
           normalizedAgentType,
-          activeSession.claude_session_id
+          sessionToUse.claude_session_id
         );
         console.log('[ChatTab handleSend] New agent session:', JSON.stringify(newAgentSession, null, 2));
 
@@ -899,7 +917,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
         sessionPolling.startPolling(activeTabId);
 
         // Make sure we're watching the correct CLI session for updates
-        const cliSessionToWatch = newAgentSession.claude_session_id || activeSession.claude_session_id;
+        const cliSessionToWatch = newAgentSession.claude_session_id || sessionToUse.claude_session_id;
         if (cliSessionToWatch && project?.root_path) {
           console.log('[ChatTab handleSend] Starting/updating watcher for CLI session:', cliSessionToWatch);
           sessionWatcherManager.startWatching(
@@ -1109,11 +1127,11 @@ export default function ChatTab({ projectId }: ChatTabProps) {
   };
 
   // Check if voice recording is available
-  // Voice is enabled when: active session exists AND (whisper is configured locally OR connected via WebRTC)
+  // Voice is enabled when: whisper is configured locally OR connected via WebRTC
   // When connected via WebRTC, transcription happens on the remote machine which may have Whisper configured
   const isWhisperConfigured = useSettingsStore((state) => state.isWhisperConfigured);
   const isWebRTCClient = peerConnection.isClient;
-  const isVoiceEnabled = !!activeSession && (isWhisperConfigured() || isWebRTCClient);
+  const isVoiceEnabled = isWhisperConfigured() || isWebRTCClient;
 
   const formatTimestamp = (date: Date) => {
     const now = new Date();
@@ -1277,27 +1295,8 @@ export default function ChatTab({ projectId }: ChatTabProps) {
             </div>
             <h3 className="text-xl font-bold mb-2">Start a Conversation</h3>
             <p className="text-base-content/60 max-w-md mb-4">
-              Start a new agent session to begin chatting. The agent will maintain context throughout the conversation.
+              Type a message below to start chatting. A new session will be created automatically.
             </p>
-            {!activeSession && (
-              <button
-                onClick={() => startNewSession()}
-                disabled={isStartingSession}
-                className="btn btn-primary gap-2"
-              >
-                {isStartingSession ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <Power className="w-4 h-4" />
-                    Start New Session
-                  </>
-                )}
-              </button>
-            )}
           </div>
         ) : (
           <>
@@ -1403,25 +1402,21 @@ export default function ChatTab({ projectId }: ChatTabProps) {
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                activeSession
-                  ? isTyping
-                    ? "Send a new message to interrupt and redirect... (Shift+Enter for new line)"
-                    : "Send a message to the agent... (Shift+Enter for new line)"
-                  : "Start a session to begin chatting..."
+                isTyping
+                ? "Send a new message to interrupt and redirect... (Shift+Enter for new line)"
+                : "Send a message to the agent... (Shift+Enter for new line)"
               }
               className="textarea textarea-bordered flex-1 resize-none min-h-[50px] max-h-[200px]"
-              disabled={!activeSession}
+              disabled={isStartingSession}
               rows={1}
             />
             {/* Voice Recording Button */}
             <button
               onClick={() => setShowVoiceModal(true)}
-              disabled={!isVoiceEnabled}
+              disabled={isStartingSession || (!isWhisperConfigured() && !isWebRTCClient)}
               className="btn btn-ghost btn-square"
               title={
-                !activeSession
-                  ? "Start a session to use voice input"
-                  : !isWhisperConfigured() && !isWebRTCClient
+                !isWhisperConfigured() && !isWebRTCClient
                   ? "Configure voice transcription in Settings"
                   : isWebRTCClient
                   ? "Record voice message (transcribed on remote machine)"
@@ -1433,7 +1428,7 @@ export default function ChatTab({ projectId }: ChatTabProps) {
             {/* Send Button */}
             <button
               onClick={() => handleSend()}
-              disabled={!inputValue.trim() || !activeSession}
+              disabled={!inputValue.trim() || isStartingSession}
               className={`btn ${isTyping ? 'btn-warning' : 'btn-primary'}`}
               title={isTyping ? "Send new message (interrupts current)" : "Send message (Enter)"}
               data-send-button
@@ -1447,15 +1442,9 @@ export default function ChatTab({ projectId }: ChatTabProps) {
           </div>
           <div className="flex justify-between items-center text-xs text-base-content/50 px-1">
             <span>
-              {activeSession ? (
-                <>
-                  Press <kbd className="kbd kbd-xs">Enter</kbd> to send,{' '}
-                  <kbd className="kbd kbd-xs">Shift</kbd>+
-                  <kbd className="kbd kbd-xs">Enter</kbd> for new line
-                </>
-              ) : (
-                'Start a session to begin chatting'
-              )}
+              Press <kbd className="kbd kbd-xs">Enter</kbd> to send,{' '}
+              <kbd className="kbd kbd-xs">Shift</kbd>+
+              <kbd className="kbd kbd-xs">Enter</kbd> for new line
             </span>
             <span
               className={

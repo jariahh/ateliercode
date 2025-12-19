@@ -200,7 +200,7 @@ impl AgentManager {
     /// Send a message to an agent session using headless mode
     /// If a process is already running, it will be killed first (interrupt + resume pattern)
     pub async fn send_message(&self, session_id: &str, message: String) -> Result<()> {
-        log::info!("Sending message to session {}: {}", session_id, message);
+        log::info!("Sending message to session {} (length: {} bytes)", session_id, message.len());
 
         // First, kill any existing process for this session
         self.kill_active_process(session_id).await;
@@ -216,17 +216,17 @@ impl AgentManager {
         drop(sessions); // Release the read lock
 
         // Get the command based on agent type
-        let (program, args) = self.get_headless_command(&agent_type, &message, claude_session_id.as_deref())?;
+        let (program, args, use_stdin) = self.get_headless_command(&agent_type, &message, claude_session_id.as_deref())?;
 
-        log::info!("Executing headless command: {} {:?} in {}", program, args, root_path);
+        log::info!("Executing headless command: {} {:?} in {} (use_stdin: {})", program, args, root_path, use_stdin);
 
         // Execute the command in headless mode
-        // IMPORTANT: Use Stdio::null() for stdin to signal no input is coming.
-        // This prevents CLI tools (especially Gemini) from hanging while waiting for stdin.
+        // Use Stdio::piped() for stdin if we need to send a large message
+        // Otherwise use Stdio::null() to signal no input is coming
         let mut cmd = Command::new(&program);
         cmd.args(&args)
             .current_dir(&root_path)
-            .stdin(Stdio::null())  // Close stdin immediately - no interactive input
+            .stdin(if use_stdin { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -240,13 +240,27 @@ impl AgentManager {
                     .arg(&program)
                     .args(&original_args)
                     .current_dir(&root_path)
-                    .stdin(Stdio::null())  // Close stdin immediately - no interactive input
+                    .stdin(if use_stdin { Stdio::piped() } else { Stdio::null() })
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
             }
         }
 
         let mut child = cmd.spawn().context("Failed to spawn headless command")?;
+
+        // If using stdin, write the message and close stdin to signal EOF
+        if use_stdin {
+            if let Some(mut stdin) = child.stdin.take() {
+                use tokio::io::AsyncWriteExt;
+                log::info!("Writing {} bytes to stdin", message.len());
+                stdin.write_all(message.as_bytes()).await
+                    .context("Failed to write message to stdin")?;
+                stdin.flush().await
+                    .context("Failed to flush stdin")?;
+                // stdin is dropped here, which closes the pipe and signals EOF
+                log::info!("Message written to stdin, pipe closed");
+            }
+        }
         let pid = child.id();
 
         log::info!("Headless command spawned with PID: {:?}", pid);
@@ -514,7 +528,13 @@ impl AgentManager {
     }
 
     /// Get the appropriate headless command for an agent type
-    fn get_headless_command(&self, agent_type: &str, message: &str, claude_session_id: Option<&str>) -> Result<(String, Vec<String>)> {
+    /// Get the headless command for an agent type.
+    /// Returns (program, args, use_stdin) - if use_stdin is true, message should be piped via stdin
+    fn get_headless_command(&self, agent_type: &str, message: &str, claude_session_id: Option<&str>) -> Result<(String, Vec<String>, bool)> {
+        // Use stdin for large messages to avoid command line length limits
+        // Windows has ~32KB limit, Linux ~128KB - use 16KB as safe threshold
+        let use_stdin = message.len() > 16 * 1024;
+
         match agent_type.to_lowercase().as_str() {
             "claude" | "claude-code" => {
                 // Check if claude CLI is available
@@ -530,12 +550,19 @@ impl AgentManager {
                     }
 
                     args.push("-p".to_string()); // Print/headless mode
-                    args.push(message.to_string()); // The message
+
+                    if use_stdin {
+                        // Use "-" to read prompt from stdin
+                        args.push("-".to_string());
+                    } else {
+                        args.push(message.to_string()); // The message as argument
+                    }
+
                     args.push("--output-format".to_string());
                     args.push("text".to_string()); // Plain text output
                     args.push("--dangerously-skip-permissions".to_string()); // Skip all permissions
 
-                    Ok(("claude".to_string(), args))
+                    Ok(("claude".to_string(), args, use_stdin))
                 } else {
                     anyhow::bail!("Claude CLI not found. Please ensure 'claude' is installed and in your PATH.");
                 }
@@ -543,14 +570,26 @@ impl AgentManager {
             "aider" => {
                 // Check if aider is available
                 if which::which("aider").is_ok() {
-                    Ok((
-                        "aider".to_string(),
-                        vec![
-                            "--yes".to_string(),
-                            "--message".to_string(),
-                            message.to_string(),
-                        ],
-                    ))
+                    if use_stdin {
+                        // Aider reads from stdin when --message is not provided
+                        Ok((
+                            "aider".to_string(),
+                            vec![
+                                "--yes".to_string(),
+                            ],
+                            true, // Always use stdin for large messages
+                        ))
+                    } else {
+                        Ok((
+                            "aider".to_string(),
+                            vec![
+                                "--yes".to_string(),
+                                "--message".to_string(),
+                                message.to_string(),
+                            ],
+                            false,
+                        ))
+                    }
                 } else {
                     anyhow::bail!("Aider CLI not found. Please ensure 'aider' is installed and in your PATH.");
                 }
@@ -569,14 +608,20 @@ impl AgentManager {
                     }
                     // If no session_id, start a fresh session (no --resume flag)
 
-                    // Use positional prompt (recommended over deprecated -p flag)
-                    args.push(message.to_string());
+                    if use_stdin {
+                        // Gemini reads from stdin when prompt is "-"
+                        args.push("-".to_string());
+                    } else {
+                        // Use positional prompt (recommended over deprecated -p flag)
+                        args.push(message.to_string());
+                    }
+
                     args.push("-o".to_string());           // Output format flag (short form)
                     args.push("text".to_string());         // Plain text output for parsing
                     args.push("--yolo".to_string());       // Auto-approve all actions
 
                     log::info!("Gemini command args: {:?}", args);
-                    Ok(("gemini".to_string(), args))
+                    Ok(("gemini".to_string(), args, use_stdin))
                 } else {
                     anyhow::bail!("Gemini CLI not found. Please ensure 'gemini' is installed and in your PATH.");
                 }

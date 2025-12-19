@@ -93,13 +93,18 @@ class ServerConnection {
   private ws: WebSocket | null = null;
   private state: ConnectionState = 'disconnected';
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 10;
   private reconnectDelay = 1000;
+  private maxReconnectDelay = 60000; // Cap at 1 minute
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
   private pendingRequests = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   private messageHandlers: MessageHandler[] = [];
   private machineId: string | null = null;
   private intentionalDisconnect = false;
+  private shouldBeConnected = false; // Track if we should maintain a connection
+  private lastHealthCheckTime = Date.now(); // Track time for sleep detection
+  private visibilityHandler: (() => void) | null = null;
 
   get connectionState(): ConnectionState {
     return this.state;
@@ -123,8 +128,10 @@ class ServerConnection {
     }
 
     this.intentionalDisconnect = false;
+    this.shouldBeConnected = true;
     this.reconnectAttempts = 0;
     this.state = 'connecting';
+    this.startHealthCheck();
     this.updateStore();
 
     return new Promise((resolve) => {
@@ -188,7 +195,9 @@ class ServerConnection {
    */
   disconnect(): void {
     this.intentionalDisconnect = true;
+    this.shouldBeConnected = false;
     this.stopHeartbeat();
+    this.stopHealthCheck();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -487,6 +496,115 @@ class ServerConnection {
     }
   }
 
+  /**
+   * Start periodic health check to detect and recover from disconnections
+   * Runs every 30 seconds
+   * Also listens for system wake-up via visibility changes
+   */
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+    this.lastHealthCheckTime = Date.now();
+
+    this.healthCheckInterval = setInterval(() => {
+      this.performHealthCheck();
+    }, 30000);
+
+    // Listen for visibility changes (tab/app coming to foreground)
+    // This often indicates system woke from sleep
+    if (typeof document !== 'undefined') {
+      this.visibilityHandler = () => {
+        if (document.visibilityState === 'visible') {
+          console.log('[ServerConnection] App became visible, checking connection...');
+          this.handlePossibleWakeUp();
+        }
+      };
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+    }
+
+    // Also listen for online events (network reconnected after sleep)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        console.log('[ServerConnection] Network came online, checking connection...');
+        this.handlePossibleWakeUp();
+      });
+    }
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+    if (this.visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
+  }
+
+  /**
+   * Handle possible wake-up from system sleep
+   * Checks if significant time has passed and forces reconnection if needed
+   */
+  private async handlePossibleWakeUp(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastCheck = now - this.lastHealthCheckTime;
+
+    // If more than 60 seconds passed since last check, system likely slept
+    if (timeSinceLastCheck > 60000) {
+      console.log(`[ServerConnection] Detected possible wake-up (${Math.round(timeSinceLastCheck / 1000)}s since last check)`);
+
+      // Check if WebSocket is actually still alive
+      if (this.ws) {
+        // WebSocket might think it's open but actually be dead
+        // Force a check by looking at readyState
+        if (this.ws.readyState !== WebSocket.OPEN) {
+          console.log('[ServerConnection] WebSocket is not open after wake-up, reconnecting...');
+          this.handleDisconnect();
+        } else {
+          // Try sending a heartbeat to verify connection is alive
+          // If connection is dead, the heartbeat will fail and trigger disconnect
+          console.log('[ServerConnection] Sending heartbeat to verify connection after wake-up');
+          this.send({ type: 'heartbeat', payload: {} });
+        }
+      } else if (this.shouldBeConnected && !this.intentionalDisconnect) {
+        // No WebSocket but we should be connected - reconnect
+        console.log('[ServerConnection] No WebSocket after wake-up, reconnecting...');
+        this.reconnectAttempts = 0;
+        await this.tryReconnect();
+      }
+    }
+
+    this.lastHealthCheckTime = now;
+  }
+
+  private async performHealthCheck(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastCheck = now - this.lastHealthCheckTime;
+
+    // Check for wake-up (timer should fire every 30s, if much more passed, system slept)
+    if (timeSinceLastCheck > 60000) {
+      console.log(`[ServerConnection] Health check detected wake-up (${Math.round(timeSinceLastCheck / 1000)}s gap)`);
+      await this.handlePossibleWakeUp();
+      return; // handlePossibleWakeUp already handles reconnection
+    }
+
+    this.lastHealthCheckTime = now;
+
+    // If we should be connected but aren't, try to reconnect
+    if (this.shouldBeConnected && this.state === 'disconnected' && !this.intentionalDisconnect) {
+      console.log('[ServerConnection] Health check: disconnected but should be connected, triggering reconnect');
+      // Reset reconnect attempts to allow a fresh set of retries
+      this.reconnectAttempts = 0;
+      await this.tryReconnect();
+    }
+
+    // If we think we're connected but the WebSocket is actually closed, handle it
+    if (this.ws && this.ws.readyState === WebSocket.CLOSED) {
+      console.log('[ServerConnection] Health check: WebSocket is closed, handling disconnect');
+      this.handleDisconnect();
+    }
+  }
+
   private handleDisconnect(): void {
     this.stopHeartbeat();
     this.ws = null;
@@ -494,12 +612,21 @@ class ServerConnection {
     this.machineId = null;
     this.updateStore();
 
-    // Only attempt reconnect if this wasn't intentional
-    if (!this.intentionalDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-      console.log(`[ServerConnection] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-      setTimeout(() => this.tryReconnect(), delay);
+    // Only attempt reconnect if this wasn't intentional and we should be connected
+    if (!this.intentionalDisconnect && this.shouldBeConnected) {
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.reconnectAttempts++;
+        // Exponential backoff with a cap
+        const delay = Math.min(
+          this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+          this.maxReconnectDelay
+        );
+        console.log(`[ServerConnection] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        setTimeout(() => this.tryReconnect(), delay);
+      } else {
+        console.log('[ServerConnection] Max reconnect attempts reached. Health check will retry in 30 seconds.');
+        // Health check will reset reconnectAttempts and try again
+      }
     }
   }
 
@@ -581,18 +708,32 @@ export async function initServerConnection(): Promise<void> {
 
   // If we have a token, try to authenticate
   if (token) {
+    console.log('[ServerConnection] Attempting authentication with token...');
     const result = await serverConnection.loginWithToken(token);
     if (result.success) {
       console.log('[ServerConnection] Authenticated with token');
 
       // Register this machine if we have a name (Tauri mode only)
       if (!isWebMode && settings.server.machineName) {
-        await serverConnection.registerMachine(settings.server.machineName);
+        console.log('[ServerConnection] Registering machine:', settings.server.machineName);
+        const machineResult = await serverConnection.registerMachine(settings.server.machineName);
+        if (machineResult) {
+          console.log('[ServerConnection] Machine registered:', machineResult.machineId);
+        } else {
+          console.log('[ServerConnection] Machine registration failed');
+        }
+      } else if (!isWebMode) {
+        console.log('[ServerConnection] No machine name configured - machine will not appear online');
       }
 
       // Fetch machine list
       const machines = await serverConnection.listMachines();
+      console.log('[ServerConnection] Loaded machines:', machines.length);
       useMachineStore.getState().setMachines(machines);
+    } else {
+      console.log('[ServerConnection] Token authentication failed:', result.error);
     }
+  } else {
+    console.log('[ServerConnection] No token available - not authenticating');
   }
 }
