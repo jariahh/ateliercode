@@ -1,27 +1,15 @@
-import { FileCode, GitBranch, MessageSquare, CheckCircle } from 'lucide-react';
+import { GitBranch, MessageSquare } from 'lucide-react';
 
 export interface StatsPanelProps {
-  filesChanged: number;
   commits: number;
   messages: number;
-  tasksCompleted: number;
-  tasksTotal: number;
 }
 
 export default function StatsPanel({
-  filesChanged,
   commits,
   messages,
-  tasksCompleted,
-  tasksTotal,
 }: StatsPanelProps) {
   const stats = [
-    {
-      label: 'Files Changed',
-      value: filesChanged,
-      icon: FileCode,
-      color: 'text-primary',
-    },
     {
       label: 'Commits',
       value: commits,
@@ -33,12 +21,6 @@ export default function StatsPanel({
       value: messages,
       icon: MessageSquare,
       color: 'text-accent',
-    },
-    {
-      label: 'Tasks',
-      value: `${tasksCompleted}/${tasksTotal}`,
-      icon: CheckCircle,
-      color: 'text-success',
     },
   ];
 
@@ -61,22 +43,6 @@ export default function StatsPanel({
             );
           })}
         </div>
-
-        {tasksTotal > 0 && (
-          <div className="mt-4">
-            <div className="flex justify-between text-sm mb-1">
-              <span className="text-base-content/60">Progress</span>
-              <span className="font-semibold text-base-content">
-                {Math.round((tasksCompleted / tasksTotal) * 100)}%
-              </span>
-            </div>
-            <progress
-              className="progress progress-success w-full"
-              value={tasksCompleted}
-              max={tasksTotal}
-            ></progress>
-          </div>
-        )}
       </div>
     </div>
   );

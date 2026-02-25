@@ -93,11 +93,8 @@ export default function OverviewTab({ projectId, agentType, projectPath }: Overv
     } catch (error) {
       console.error('Failed to load project stats:', error);
       setStats({
-        files_changed: 0,
         commits: 0,
         messages: 0,
-        tasks_completed: 0,
-        tasks_total: 0,
       });
     } finally {
       setIsLoadingStats(false);
@@ -383,11 +380,8 @@ export default function OverviewTab({ projectId, agentType, projectPath }: Overv
         </div>
       ) : (
         <StatsPanel
-          filesChanged={stats?.files_changed || 0}
           commits={stats?.commits || 0}
           messages={stats?.messages || 0}
-          tasksCompleted={stats?.tasks_completed || 0}
-          tasksTotal={stats?.tasks_total || 0}
         />
       )}
 

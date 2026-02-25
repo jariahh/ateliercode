@@ -15,7 +15,7 @@ pub struct FileWatcherManager {
 
 struct ProjectWatcher {
     _watcher: RecommendedWatcher,
-    session_id: String,
+    _session_id: String,
 }
 
 impl FileWatcherManager {
@@ -116,7 +116,7 @@ impl FileWatcherManager {
                 project_id.clone(),
                 ProjectWatcher {
                     _watcher: watcher,
-                    session_id: session_id.clone(),
+                    _session_id: session_id.clone(),
                 },
             );
         }
@@ -165,9 +165,10 @@ impl FileWatcherManager {
     }
 
     /// Get the session ID for a watched project
+    #[allow(dead_code)]
     pub fn get_session_id(&self, project_id: &str) -> Option<String> {
         let watchers = self.watchers.lock().unwrap();
-        watchers.get(project_id).map(|w| w.session_id.clone())
+        watchers.get(project_id).map(|w| w._session_id.clone())
     }
 }
 

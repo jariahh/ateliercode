@@ -16,9 +16,6 @@ import type {
   SessionListItem,
   ChatSessionInfo,
   PaginatedChatHistory,
-  Task,
-  CreateTaskInput,
-  UpdateTaskInput,
   ProjectAnalysisResult,
   FileNode,
   TranscriptionResult,
@@ -64,11 +61,6 @@ export interface IBackend {
    * File system operations
    */
   files: IFileBackend;
-
-  /**
-   * Task management operations
-   */
-  tasks: ITaskBackend;
 
   /**
    * Voice transcription operations
@@ -176,17 +168,6 @@ export interface IFileBackend {
    * Get git status for a project
    */
   getGitStatus(rootPath: string): Promise<string>;
-}
-
-/**
- * Task management operations
- */
-export interface ITaskBackend {
-  create(input: CreateTaskInput): Promise<Task>;
-  list(projectId: string): Promise<Task[]>;
-  update(taskId: string, updates: UpdateTaskInput): Promise<Task>;
-  delete(taskId: string): Promise<boolean>;
-  updateStatus(taskId: string, status: string): Promise<Task>;
 }
 
 /**

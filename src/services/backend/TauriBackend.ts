@@ -13,7 +13,6 @@ import type {
   IAgentBackend,
   IChatBackend,
   IFileBackend,
-  ITaskBackend,
   ITranscriptionBackend,
   ISystemBackend,
   BackendType,
@@ -30,9 +29,6 @@ import type {
   SessionListItem,
   ChatSessionInfo,
   PaginatedChatHistory,
-  Task,
-  CreateTaskInput,
-  UpdateTaskInput,
   ProjectAnalysisResult,
   FileNode,
   TranscriptionResult,
@@ -240,31 +236,6 @@ class TauriFileBackend implements IFileBackend {
 }
 
 /**
- * Task backend implementation for Tauri
- */
-class TauriTaskBackend implements ITaskBackend {
-  async create(input: CreateTaskInput): Promise<Task> {
-    return await invoke<Task>('create_task', { input });
-  }
-
-  async list(projectId: string): Promise<Task[]> {
-    return await invoke<Task[]>('get_tasks', { projectId });
-  }
-
-  async update(taskId: string, updates: UpdateTaskInput): Promise<Task> {
-    return await invoke<Task>('update_task', { taskId, updates });
-  }
-
-  async delete(taskId: string): Promise<boolean> {
-    return await invoke<boolean>('delete_task', { taskId });
-  }
-
-  async updateStatus(taskId: string, status: string): Promise<Task> {
-    return await invoke<Task>('update_task_status', { taskId, status });
-  }
-}
-
-/**
  * Transcription backend implementation for Tauri
  */
 class TauriTranscriptionBackend implements ITranscriptionBackend {
@@ -315,7 +286,6 @@ export class TauriBackend implements IBackend {
   readonly agent: IAgentBackend;
   readonly chat: IChatBackend;
   readonly files: IFileBackend;
-  readonly tasks: ITaskBackend;
   readonly transcription: ITranscriptionBackend;
   readonly system: ISystemBackend;
 
@@ -324,7 +294,6 @@ export class TauriBackend implements IBackend {
     this.agent = new TauriAgentBackend();
     this.chat = new TauriChatBackend();
     this.files = new TauriFileBackend();
-    this.tasks = new TauriTaskBackend();
     this.transcription = new TauriTranscriptionBackend();
     this.system = new TauriSystemBackend();
   }

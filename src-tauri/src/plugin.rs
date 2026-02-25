@@ -614,6 +614,7 @@ impl PluginManager {
         let library = libloading::Library::new(library_path)?;
 
         // Get the plugin constructor function
+        #[allow(improper_ctypes_definitions)]
         type PluginCreate = unsafe extern "C" fn() -> *mut dyn AgentPlugin;
         let constructor: libloading::Symbol<PluginCreate> = library.get(b"create_plugin")?;
 
@@ -690,15 +691,17 @@ impl PluginManager {
     pub fn list_plugins(&self) -> Vec<PluginInfo> {
         self.plugins
             .values()
-            .map(|p| PluginInfo {
-                name: p.name().to_string(),
-                display_name: p.display_name().to_string(),
-                version: p.version().to_string(),
-                description: p.description().to_string(),
-                capabilities: p.get_capabilities(),
-                icon: p.icon().map(|s| s.to_string()),
-                color: p.color().map(|s| s.to_string()),
-                flags: p.get_available_flags(),
+            .map(|p| {
+                PluginInfo {
+                    name: p.name().to_string(),
+                    display_name: p.display_name().to_string(),
+                    version: p.version().to_string(),
+                    description: p.description().to_string(),
+                    capabilities: p.get_capabilities(),
+                    icon: p.icon().map(|s| s.to_string()),
+                    color: p.color().map(|s| s.to_string()),
+                    flags: p.get_available_flags(),
+                }
             })
             .collect()
     }

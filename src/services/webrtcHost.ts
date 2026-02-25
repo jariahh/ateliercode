@@ -6,7 +6,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import type { Project, CreateProjectInput, UpdateProjectInput, ProjectAnalysisResult, AgentInfo, Task, CreateTaskInput, UpdateTaskInput } from '../types/tauri';
+import type { Project, CreateProjectInput, UpdateProjectInput, ProjectAnalysisResult, AgentInfo } from '../types/tauri';
 import { peerConnection } from './peerConnection';
 
 interface PeerMessage {
@@ -236,33 +236,6 @@ const commandHandlers: Record<string, CommandHandler> = {
       pluginName,
       watchId,
       cliSessionId,
-    });
-  },
-
-  // Task commands
-  create_task: async (params) => {
-    return await invoke<Task>('create_task', { input: params.input as CreateTaskInput });
-  },
-
-  get_tasks: async (params) => {
-    return await invoke<Task[]>('get_tasks', { projectId: params.projectId as string });
-  },
-
-  update_task: async (params) => {
-    return await invoke<Task>('update_task', {
-      taskId: params.taskId as string,
-      updates: params.updates as UpdateTaskInput,
-    });
-  },
-
-  delete_task: async (params) => {
-    return await invoke<boolean>('delete_task', { taskId: params.taskId as string });
-  },
-
-  update_task_status: async (params) => {
-    return await invoke<Task>('update_task_status', {
-      taskId: params.taskId as string,
-      status: params.status as string,
     });
   },
 

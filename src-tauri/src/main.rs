@@ -1,10 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod adapters;
-mod agent_adapter;
 mod agent_manager;
-mod agents;
 mod ai_service;
 mod commands;
 mod commands_chat;
@@ -13,10 +10,13 @@ mod db;
 mod file_watcher;
 mod models;
 mod output_parser;
+#[allow(dead_code)]
 mod plugin;
 mod plugin_settings;
+#[allow(dead_code)]
 mod plugins;
 mod project_analyzer;
+#[allow(dead_code)]
 mod types;
 
 use tauri::Manager;
@@ -67,11 +67,6 @@ fn main() {
             commands::analyze_project_with_ai,
             commands::update_project_with_ai,
             commands::generate_project_details,
-            commands::create_task,
-            commands::get_tasks,
-            commands::update_task,
-            commands::delete_task,
-            commands::update_task_status,
             commands::read_project_files,
             commands::get_folder_children,
             commands::get_git_status,
@@ -88,16 +83,6 @@ fn main() {
             commands::start_watching_project,
             commands::stop_watching_project,
             commands::is_watching_project,
-            commands::get_pending_changes,
-            commands::get_all_changes,
-            commands::approve_change,
-            commands::reject_change,
-            commands::get_file_diff,
-            commands::add_review_comment,
-            commands::get_review_comments,
-            commands::resolve_review_comment,
-            commands::unresolve_review_comment,
-            commands::delete_review_comment,
             commands::start_agent_session,
             commands::send_to_agent,
             commands::read_agent_output,
@@ -174,8 +159,12 @@ fn main() {
 
             unsafe {
                 match plugin_manager.discover_and_load(&plugin_dir) {
-                    Ok(count) => log::info!("Loaded {} plugins", count),
-                    Err(e) => log::error!("Failed to load plugins: {}", e),
+                    Ok(count) => {
+                        log::info!("Loaded {} plugins", count);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to load plugins: {}", e);
+                    }
                 }
             }
 

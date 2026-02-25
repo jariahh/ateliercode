@@ -154,34 +154,24 @@ pub async fn list_cli_sessions(
         plugin_name,
         project_path
     );
-    eprintln!("[list_cli_sessions] Called with plugin_name={}, project_path={}", plugin_name, project_path);
 
     // Get the plugin - if not found, return empty list (agent doesn't support session history)
     let plugin = match plugin_manager.get(&plugin_name) {
-        Some(p) => {
-            eprintln!("[list_cli_sessions] Found plugin: {}", p.name());
-            p
-        },
+        Some(p) => p,
         None => {
             log::info!(
                 "Plugin '{}' not found - returning empty session list (agent may not support session history)",
                 plugin_name
             );
-            eprintln!("[list_cli_sessions] Plugin '{}' NOT FOUND", plugin_name);
             return Ok(Vec::new());
         }
     };
 
     // List sessions from the plugin
-    eprintln!("[list_cli_sessions] Calling plugin.list_sessions...");
     let sessions = plugin
         .list_sessions(&project_path)
         .await
-        .map_err(|e| {
-            eprintln!("[list_cli_sessions] Error calling list_sessions: {}", e);
-            format!("Failed to list sessions: {}", e)
-        })?;
-    eprintln!("[list_cli_sessions] plugin.list_sessions returned {} sessions", sessions.len());
+        .map_err(|e| format!("Failed to list sessions: {}", e))?;
 
     // Convert SessionInfo to SessionListItem
     let items: Vec<SessionListItem> = sessions
@@ -321,8 +311,8 @@ pub async fn start_watching_session(
     project_path: String,
     cli_session_id: String,
 ) -> Result<String, String> {
-    println!(
-        "[TAURI] Starting to watch session: {} for plugin: {} in project: {}",
+    log::info!(
+        "Starting to watch session: {} for plugin: {} in project: {}",
         cli_session_id,
         plugin_name,
         project_path
@@ -345,16 +335,14 @@ pub async fn start_watching_session(
 
     // Create a callback that emits Tauri events
     let callback = Box::new(move |update: SessionUpdate| {
-        println!("[TAURI] Session update received: {:?}", update);
+        log::debug!("Session update received: {:?}", update);
 
         // Emit the event to the frontend
         if let Err(e) = app.emit("session-update", serde_json::json!({
             "cli_session_id": &cli_session_id_for_callback,
             "update": update
         })) {
-            println!("[TAURI] Failed to emit session-update event: {}", e);
-        } else {
-            println!("[TAURI] Successfully emitted session-update event");
+            log::error!("Failed to emit session-update event: {}", e);
         }
     });
 
@@ -365,7 +353,7 @@ pub async fn start_watching_session(
         .map_err(|e| format!("Failed to start watching session: {}", e))?;
 
     let watch_id = watch_handle.id.clone();
-    println!("[TAURI] Started watching session with watch_id: {}", watch_id);
+    log::info!("Started watching session with watch_id: {}", watch_id);
 
     Ok(watch_id)
 }

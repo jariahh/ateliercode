@@ -18,7 +18,6 @@ export type {
   IAgentBackend,
   IChatBackend,
   IFileBackend,
-  ITaskBackend,
   ITranscriptionBackend,
   ISystemBackend,
 } from './IBackend';
@@ -105,20 +104,6 @@ class MockBackend implements IBackend {
     readProjectFiles: async () => [],
     getGitStatus: async () => '',
   } as IBackend['files'];
-
-  tasks = {
-    create: async () => {
-      throw new Error('Mock backend: tasks.create not implemented');
-    },
-    list: async () => [],
-    update: async () => {
-      throw new Error('Mock backend: tasks.update not implemented');
-    },
-    delete: async () => false,
-    updateStatus: async () => {
-      throw new Error('Mock backend: tasks.updateStatus not implemented');
-    },
-  } as IBackend['tasks'];
 
   transcription = {
     checkWhisperInstallation: async () => ({ installed: false, model_downloaded: false }),

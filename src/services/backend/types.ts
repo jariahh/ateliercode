@@ -12,9 +12,6 @@ export type {
   CreateProjectInput,
   UpdateProjectInput,
   AgentInfo,
-  Task,
-  CreateTaskInput,
-  UpdateTaskInput,
   ProjectAnalysisResult,
 } from '../../types/tauri';
 

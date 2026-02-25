@@ -1,17 +1,15 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '../stores/projectStore';
-import { Folder, Bot, LayoutDashboard, MessageSquare, FileCode, ListTodo, Settings, Sparkles, Save, GitCompare } from 'lucide-react';
+import { Folder, Bot, LayoutDashboard, MessageSquare, FileCode, Settings, Sparkles, Save } from 'lucide-react';
 import type { Project } from '../services/backend/types';
 import OverviewTab from '../components/workspace/OverviewTab';
-import TasksTab from '../components/workspace/TasksTab';
 import FilesTab from '../components/workspace/FilesTab';
 import ChatTab from '../components/workspace/ChatTab';
-import ChangesTab from '../components/workspace/ChangesTab';
 import AIProjectDetailsModal, { type AIProjectDetails } from '../components/modals/AIProjectDetailsModal';
 import { invoke } from '@tauri-apps/api/core';
 
-type TabType = 'overview' | 'chat' | 'files' | 'tasks' | 'changes' | 'settings';
+type TabType = 'overview' | 'chat' | 'files' | 'settings';
 
 export default function Workspace() {
   const { id } = useParams<{ id: string }>();
@@ -224,20 +222,6 @@ export default function Workspace() {
               Files
             </button>
             <button
-              className={`tab gap-2 ${activeTab === 'tasks' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('tasks')}
-            >
-              <ListTodo className="w-4 h-4" />
-              Tasks
-            </button>
-            <button
-              className={`tab gap-2 ${activeTab === 'changes' ? 'tab-active' : ''}`}
-              onClick={() => setActiveTab('changes')}
-            >
-              <GitCompare className="w-4 h-4" />
-              Changes
-            </button>
-            <button
               className={`tab gap-2 ${activeTab === 'settings' ? 'tab-active' : ''}`}
               onClick={() => setActiveTab('settings')}
             >
@@ -264,14 +248,6 @@ export default function Workspace() {
 
         {activeTab === 'files' && (
           <FilesTab projectId={id} />
-        )}
-
-        {activeTab === 'tasks' && id && (
-          <TasksTab projectId={id} />
-        )}
-
-        {activeTab === 'changes' && id && (
-          <ChangesTab projectId={id} />
         )}
 
         {activeTab === 'settings' && (

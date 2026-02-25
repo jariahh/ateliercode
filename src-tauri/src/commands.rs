@@ -5,12 +5,11 @@ use std::fs;
 use std::path::Path;
 use ignore::WalkBuilder;
 
-use crate::agents;
 use crate::db::Database;
 use crate::file_watcher::FileWatcherManager;
-use crate::models::{Project, ChatMessage, Task, ActivityLog, FileChange, ChatTab};
+use crate::models::{Project, ChatMessage, ActivityLog, ChatTab};
 use crate::project_analyzer;
-use crate::types::{AgentInfo, CreateProjectInput, UpdateProjectInput, CreateTaskInput, UpdateTaskInput, ProjectStats, ProjectAnalysisResult};
+use crate::types::{AgentInfo, CreateProjectInput, UpdateProjectInput, ProjectStats, ProjectAnalysisResult};
 
 /// Create a new project
 #[tauri::command]
@@ -267,7 +266,8 @@ pub async fn list_plugins(
     plugin_manager: tauri::State<'_, crate::plugin::PluginManager>,
 ) -> Result<Vec<crate::plugin::PluginInfo>, String> {
     log::info!("Listing plugins");
-    Ok(plugin_manager.list_plugins())
+    let result = plugin_manager.list_plugins();
+    Ok(result)
 }
 
 /// Open native folder picker dialog
@@ -314,227 +314,6 @@ async fn initialize_git_repo(path: &str) -> Result<()> {
 
     log::info!("Git repository initialized successfully");
     Ok(())
-}
-
-// ============================================================================
-// Task Management Commands
-// ============================================================================
-
-/// Create a new task
-#[tauri::command]
-pub async fn create_task(
-    db: State<'_, Database>,
-    input: CreateTaskInput,
-) -> Result<Task, String> {
-    log::info!("Creating task: {}", input.title);
-
-    // Create task instance
-    let mut task = Task::new(input.project_id.clone(), input.title, input.priority);
-
-    // Set optional description
-    if let Some(description) = input.description {
-        task.description = Some(description);
-    }
-
-    // Insert into database
-    sqlx::query(
-        r#"
-        INSERT INTO tasks (id, project_id, title, description, priority, status, estimated_hours,
-                          actual_hours, files_affected, depends_on, created_at, started_at, completed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#
-    )
-    .bind(&task.id)
-    .bind(&task.project_id)
-    .bind(&task.title)
-    .bind(&task.description)
-    .bind(&task.priority)
-    .bind(&task.status)
-    .bind(task.estimated_hours)
-    .bind(task.actual_hours)
-    .bind(&task.files_affected)
-    .bind(&task.depends_on)
-    .bind(task.created_at)
-    .bind(task.started_at)
-    .bind(task.completed_at)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to create task: {}", e))?;
-
-    log::info!("Task created successfully: {}", task.id);
-    Ok(task)
-}
-
-/// Get all tasks for a project
-#[tauri::command]
-pub async fn get_tasks(db: State<'_, Database>, project_id: String) -> Result<Vec<Task>, String> {
-    log::info!("Fetching tasks for project: {}", project_id);
-
-    let tasks = sqlx::query_as::<_, Task>(
-        r#"
-        SELECT id, project_id, title, description, priority, status, estimated_hours,
-               actual_hours, files_affected, depends_on, created_at, started_at, completed_at
-        FROM tasks
-        WHERE project_id = ?
-        ORDER BY created_at DESC
-        "#
-    )
-    .bind(&project_id)
-    .fetch_all(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch tasks: {}", e))?;
-
-    log::info!("Fetched {} tasks for project {}", tasks.len(), project_id);
-    Ok(tasks)
-}
-
-/// Update a task
-#[tauri::command]
-pub async fn update_task(
-    db: State<'_, Database>,
-    task_id: String,
-    updates: UpdateTaskInput,
-) -> Result<Task, String> {
-    log::info!("Updating task: {}", task_id);
-
-    // First, fetch the existing task
-    let mut task = sqlx::query_as::<_, Task>(
-        r#"
-        SELECT id, project_id, title, description, priority, status, estimated_hours,
-               actual_hours, files_affected, depends_on, created_at, started_at, completed_at
-        FROM tasks
-        WHERE id = ?
-        "#
-    )
-    .bind(&task_id)
-    .fetch_optional(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch task: {}", e))?
-    .ok_or_else(|| format!("Task not found: {}", task_id))?;
-
-    // Track if task is being completed for activity logging
-    let mut task_completed = false;
-
-    // Apply updates
-    if let Some(title) = updates.title {
-        task.title = title;
-    }
-    if let Some(description) = updates.description {
-        task.description = Some(description);
-    }
-    if let Some(priority) = updates.priority {
-        task.priority = priority;
-    }
-    if let Some(status) = updates.status {
-        // Update status-related timestamps
-        if status == "in_progress" && task.started_at.is_none() {
-            task.started_at = Some(chrono::Utc::now().timestamp());
-        } else if status == "completed" && task.completed_at.is_none() {
-            task.completed_at = Some(chrono::Utc::now().timestamp());
-            task_completed = true;
-        }
-        task.status = status;
-    }
-    if let Some(estimated_hours) = updates.estimated_hours {
-        task.estimated_hours = Some(estimated_hours);
-    }
-    if let Some(actual_hours) = updates.actual_hours {
-        task.actual_hours = Some(actual_hours);
-    }
-    if let Some(files_affected) = updates.files_affected {
-        task.files_affected = Some(files_affected);
-    }
-    if let Some(depends_on) = updates.depends_on {
-        task.depends_on = Some(depends_on);
-    }
-
-    // Update in database
-    sqlx::query(
-        r#"
-        UPDATE tasks
-        SET title = ?, description = ?, priority = ?, status = ?, estimated_hours = ?,
-            actual_hours = ?, files_affected = ?, depends_on = ?, started_at = ?, completed_at = ?
-        WHERE id = ?
-        "#
-    )
-    .bind(&task.title)
-    .bind(&task.description)
-    .bind(&task.priority)
-    .bind(&task.status)
-    .bind(task.estimated_hours)
-    .bind(task.actual_hours)
-    .bind(&task.files_affected)
-    .bind(&task.depends_on)
-    .bind(task.started_at)
-    .bind(task.completed_at)
-    .bind(&task_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to update task: {}", e))?;
-
-    log::info!("Task updated successfully: {}", task_id);
-
-    // Log activity if task was completed
-    if task_completed {
-        let _ = log_activity(
-            db,
-            task.project_id.clone(),
-            "task_complete".to_string(),
-            format!("Task completed: {}", task.title),
-            Some(serde_json::json!({
-                "task_id": task.id,
-                "title": task.title
-            }).to_string()),
-        ).await;
-    }
-
-    Ok(task)
-}
-
-/// Delete a task
-#[tauri::command]
-pub async fn delete_task(db: State<'_, Database>, task_id: String) -> Result<bool, String> {
-    log::info!("Deleting task: {}", task_id);
-
-    let result = sqlx::query("DELETE FROM tasks WHERE id = ?")
-        .bind(&task_id)
-        .execute(db.pool())
-        .await
-        .map_err(|e| format!("Failed to delete task: {}", e))?;
-
-    let deleted = result.rows_affected() > 0;
-
-    if deleted {
-        log::info!("Task deleted successfully: {}", task_id);
-    } else {
-        log::warn!("Task not found for deletion: {}", task_id);
-    }
-
-    Ok(deleted)
-}
-
-/// Quick update task status
-#[tauri::command]
-pub async fn update_task_status(
-    db: State<'_, Database>,
-    task_id: String,
-    status: String,
-) -> Result<Task, String> {
-    log::info!("Updating task status: {} -> {}", task_id, status);
-
-    // Use the generic update_task function with just the status
-    let updates = UpdateTaskInput {
-        title: None,
-        description: None,
-        priority: None,
-        status: Some(status),
-        estimated_hours: None,
-        actual_hours: None,
-        files_affected: None,
-        depends_on: None,
-    };
-
-    update_task(db, task_id, updates).await
 }
 
 // ============================================================================
@@ -715,7 +494,7 @@ fn build_file_node(path: &Path, root_path: &Path) -> Option<FileNode> {
 }
 
 /// Quick check if a folder has any visible children (for lazy loading UI)
-fn folder_has_children(folder_path: &Path, root_path: &Path) -> bool {
+fn folder_has_children(folder_path: &Path, _root_path: &Path) -> bool {
     let walker = WalkBuilder::new(folder_path)
         .hidden(false)
         .git_ignore(true)
@@ -1839,20 +1618,6 @@ pub async fn get_project_stats(
         .await?
         .ok_or_else(|| format!("Project not found: {}", projectId))?;
 
-    // Count distinct files changed
-    let files_changed_result = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(DISTINCT file_path)
-        FROM file_changes
-        WHERE project_id = ?
-        "#
-    )
-    .bind(&projectId)
-    .fetch_one(db.pool())
-    .await;
-
-    let files_changed = files_changed_result.unwrap_or(0) as usize;
-
     // Count commits from git
     let commits = count_git_commits(&project.root_path).await.unwrap_or(0);
 
@@ -1870,40 +1635,9 @@ pub async fn get_project_stats(
 
     let messages = messages_result.unwrap_or(0) as usize;
 
-    // Count completed tasks
-    let tasks_completed_result = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(*)
-        FROM tasks
-        WHERE project_id = ? AND status = 'completed'
-        "#
-    )
-    .bind(&projectId)
-    .fetch_one(db.pool())
-    .await;
-
-    let tasks_completed = tasks_completed_result.unwrap_or(0) as usize;
-
-    // Count total tasks
-    let tasks_total_result = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(*)
-        FROM tasks
-        WHERE project_id = ?
-        "#
-    )
-    .bind(&projectId)
-    .fetch_one(db.pool())
-    .await;
-
-    let tasks_total = tasks_total_result.unwrap_or(0) as usize;
-
     let stats = ProjectStats {
-        files_changed,
         commits,
         messages,
-        tasks_completed,
-        tasks_total,
     };
 
     log::info!("Project stats: {:?}", stats);
@@ -2001,325 +1735,6 @@ pub async fn is_watching_project(
     project_id: String,
 ) -> Result<bool, String> {
     Ok(watcher.is_watching(&project_id))
-}
-
-/// Get pending file changes for a project
-#[tauri::command]
-pub async fn get_pending_changes(
-    db: State<'_, Database>,
-    project_id: String,
-) -> Result<Vec<FileChange>, String> {
-    log::info!("Fetching pending changes for project: {}", project_id);
-
-    let changes = sqlx::query_as::<_, FileChange>(
-        r#"
-        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
-        FROM file_changes
-        WHERE project_id = ? AND reviewed = FALSE
-        ORDER BY timestamp DESC
-        "#
-    )
-    .bind(&project_id)
-    .fetch_all(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch pending changes: {}", e))?;
-
-    log::info!("Found {} pending changes for project {}", changes.len(), project_id);
-    Ok(changes)
-}
-
-/// Get all file changes for a project (including reviewed ones)
-#[tauri::command]
-pub async fn get_all_changes(
-    db: State<'_, Database>,
-    project_id: String,
-    limit: Option<i64>,
-) -> Result<Vec<FileChange>, String> {
-    log::info!("Fetching all changes for project: {}", project_id);
-
-    let limit_value = limit.unwrap_or(100).min(500);
-
-    let changes = sqlx::query_as::<_, FileChange>(
-        r#"
-        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
-        FROM file_changes
-        WHERE project_id = ?
-        ORDER BY timestamp DESC
-        LIMIT ?
-        "#
-    )
-    .bind(&project_id)
-    .bind(limit_value)
-    .fetch_all(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch changes: {}", e))?;
-
-    log::info!("Found {} changes for project {}", changes.len(), project_id);
-    Ok(changes)
-}
-
-/// Approve a file change
-#[tauri::command]
-pub async fn approve_change(
-    db: State<'_, Database>,
-    change_id: String,
-) -> Result<FileChange, String> {
-    log::info!("Approving change: {}", change_id);
-
-    // Update the change
-    sqlx::query(
-        r#"
-        UPDATE file_changes
-        SET reviewed = TRUE, approved = TRUE
-        WHERE id = ?
-        "#
-    )
-    .bind(&change_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to approve change: {}", e))?;
-
-    // Fetch the updated change
-    let change = sqlx::query_as::<_, FileChange>(
-        r#"
-        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
-        FROM file_changes
-        WHERE id = ?
-        "#
-    )
-    .bind(&change_id)
-    .fetch_one(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch updated change: {}", e))?;
-
-    log::info!("Change approved: {}", change_id);
-    Ok(change)
-}
-
-/// Reject a file change
-#[tauri::command]
-pub async fn reject_change(
-    db: State<'_, Database>,
-    change_id: String,
-) -> Result<FileChange, String> {
-    log::info!("Rejecting change: {}", change_id);
-
-    // Update the change
-    sqlx::query(
-        r#"
-        UPDATE file_changes
-        SET reviewed = TRUE, approved = FALSE
-        WHERE id = ?
-        "#
-    )
-    .bind(&change_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to reject change: {}", e))?;
-
-    // Fetch the updated change
-    let change = sqlx::query_as::<_, FileChange>(
-        r#"
-        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
-        FROM file_changes
-        WHERE id = ?
-        "#
-    )
-    .bind(&change_id)
-    .fetch_one(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch updated change: {}", e))?;
-
-    log::info!("Change rejected: {}", change_id);
-    Ok(change)
-}
-
-/// Get the diff content for a file change
-#[tauri::command]
-pub async fn get_file_diff(
-    db: State<'_, Database>,
-    change_id: String,
-) -> Result<String, String> {
-    log::info!("Fetching diff for change: {}", change_id);
-
-    let change = sqlx::query_as::<_, FileChange>(
-        r#"
-        SELECT id, project_id, session_id, file_path, change_type, diff, reviewed, approved, timestamp
-        FROM file_changes
-        WHERE id = ?
-        "#
-    )
-    .bind(&change_id)
-    .fetch_one(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch change: {}", e))?;
-
-    Ok(change.diff.unwrap_or_default())
-}
-
-// ============================================================================
-// Review Comment Commands
-// ============================================================================
-
-/// Add a review comment to a file change
-#[tauri::command]
-pub async fn add_review_comment(
-    db: State<'_, Database>,
-    file_change_id: String,
-    author: String,
-    comment: String,
-    line_number: Option<i64>,
-) -> Result<crate::models::ReviewComment, String> {
-    log::info!("Adding review comment to file change: {}", file_change_id);
-
-    let review_comment = crate::models::ReviewComment::new(
-        file_change_id.clone(),
-        author,
-        comment,
-        line_number,
-    );
-
-    sqlx::query(
-        r#"
-        INSERT INTO review_comments (id, file_change_id, line_number, author, comment, timestamp, resolved)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        "#
-    )
-    .bind(&review_comment.id)
-    .bind(&review_comment.file_change_id)
-    .bind(&review_comment.line_number)
-    .bind(&review_comment.author)
-    .bind(&review_comment.comment)
-    .bind(review_comment.timestamp)
-    .bind(review_comment.resolved)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to add review comment: {}", e))?;
-
-    log::info!("Review comment added successfully: {}", review_comment.id);
-    Ok(review_comment)
-}
-
-/// Get all review comments for a file change
-#[tauri::command]
-pub async fn get_review_comments(
-    db: State<'_, Database>,
-    file_change_id: String,
-) -> Result<Vec<crate::models::ReviewComment>, String> {
-    log::info!("Fetching review comments for file change: {}", file_change_id);
-
-    let comments = sqlx::query_as::<_, crate::models::ReviewComment>(
-        r#"
-        SELECT id, file_change_id, line_number, author, comment, timestamp, resolved
-        FROM review_comments
-        WHERE file_change_id = ?
-        ORDER BY timestamp ASC
-        "#
-    )
-    .bind(&file_change_id)
-    .fetch_all(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch review comments: {}", e))?;
-
-    log::info!("Fetched {} review comments", comments.len());
-    Ok(comments)
-}
-
-/// Resolve a review comment
-#[tauri::command]
-pub async fn resolve_review_comment(
-    db: State<'_, Database>,
-    comment_id: String,
-) -> Result<crate::models::ReviewComment, String> {
-    log::info!("Resolving review comment: {}", comment_id);
-
-    sqlx::query(
-        r#"
-        UPDATE review_comments
-        SET resolved = TRUE
-        WHERE id = ?
-        "#
-    )
-    .bind(&comment_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to resolve comment: {}", e))?;
-
-    // Fetch and return the updated comment
-    let comment = sqlx::query_as::<_, crate::models::ReviewComment>(
-        r#"
-        SELECT id, file_change_id, line_number, author, comment, timestamp, resolved
-        FROM review_comments
-        WHERE id = ?
-        "#
-    )
-    .bind(&comment_id)
-    .fetch_one(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch updated comment: {}", e))?;
-
-    log::info!("Review comment resolved successfully");
-    Ok(comment)
-}
-
-/// Unresolve a review comment
-#[tauri::command]
-pub async fn unresolve_review_comment(
-    db: State<'_, Database>,
-    comment_id: String,
-) -> Result<crate::models::ReviewComment, String> {
-    log::info!("Unresolving review comment: {}", comment_id);
-
-    sqlx::query(
-        r#"
-        UPDATE review_comments
-        SET resolved = FALSE
-        WHERE id = ?
-        "#
-    )
-    .bind(&comment_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to unresolve comment: {}", e))?;
-
-    // Fetch and return the updated comment
-    let comment = sqlx::query_as::<_, crate::models::ReviewComment>(
-        r#"
-        SELECT id, file_change_id, line_number, author, comment, timestamp, resolved
-        FROM review_comments
-        WHERE id = ?
-        "#
-    )
-    .bind(&comment_id)
-    .fetch_one(db.pool())
-    .await
-    .map_err(|e| format!("Failed to fetch updated comment: {}", e))?;
-
-    log::info!("Review comment unresolved successfully");
-    Ok(comment)
-}
-
-/// Delete a review comment
-#[tauri::command]
-pub async fn delete_review_comment(
-    db: State<'_, Database>,
-    comment_id: String,
-) -> Result<(), String> {
-    log::info!("Deleting review comment: {}", comment_id);
-
-    sqlx::query(
-        r#"
-        DELETE FROM review_comments
-        WHERE id = ?
-        "#
-    )
-    .bind(&comment_id)
-    .execute(db.pool())
-    .await
-    .map_err(|e| format!("Failed to delete comment: {}", e))?;
-
-    log::info!("Review comment deleted successfully");
-    Ok(())
 }
 
 // ============================================================================
@@ -2635,36 +2050,6 @@ pub async fn get_project_sessions(
     Ok(sessions)
 }
 
-/// Parse agent output into structured events
-#[tauri::command]
-pub async fn parse_agent_output(
-    session_id: String,
-    agent_type: String,
-    output: Vec<String>,
-) -> Result<crate::agent_adapter::ParsedOutput, String> {
-    log::info!("Parsing output from {} agent session: {}", agent_type, session_id);
-
-    use crate::agent_adapter::AgentAdapter;
-
-    // Create the appropriate adapter based on agent type
-    let adapter: Box<dyn AgentAdapter> = match agent_type.to_lowercase().as_str() {
-        "claude" | "claude-code" => {
-            Box::new(crate::adapters::claude_adapter::ClaudeCodeAdapter::new(session_id.clone()))
-        }
-        "aider" => {
-            Box::new(crate::agent_adapter::AiderAdapter::new(session_id.clone()))
-        }
-        _ => {
-            return Err(format!("Unsupported agent type: {}", agent_type));
-        }
-    };
-
-    // Parse the output
-    let parsed = adapter.parse_output(&session_id, &output);
-
-    Ok(parsed)
-}
-
 // ============================================================================
 // Database Cleanup Commands
 // ============================================================================
@@ -2764,7 +2149,7 @@ pub async fn get_chat_tabs(
 ) -> Result<Vec<ChatTab>, String> {
     let pool = db.pool();
 
-    sqlx::query_as::<_, ChatTab>(
+    let result = sqlx::query_as::<_, ChatTab>(
         "SELECT id, project_id, agent_type, session_id, cli_session_id, label, tab_order, is_active, created_at, last_activity
          FROM chat_tabs
          WHERE project_id = ?
@@ -2772,8 +2157,9 @@ pub async fn get_chat_tabs(
     )
     .bind(&project_id)
     .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to get chat tabs: {}", e))
+    .await;
+
+    result.map_err(|e| format!("Failed to get chat tabs: {}", e))
 }
 
 /// Create a new chat tab

@@ -134,6 +134,7 @@ impl DynamicPlugin {
 
         // Get the plugin constructor function
         // Plugins must export a function: extern "C" fn create_plugin() -> *mut dyn AgentPlugin
+        #[allow(improper_ctypes_definitions)]
         type PluginCreate = unsafe extern "C" fn() -> *mut dyn AgentPlugin;
 
         let constructor: libloading::Symbol<PluginCreate> = library

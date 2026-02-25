@@ -12,7 +12,6 @@ import type {
   IAgentBackend,
   IChatBackend,
   IFileBackend,
-  ITaskBackend,
   ITranscriptionBackend,
   ISystemBackend,
   BackendType,
@@ -29,9 +28,6 @@ import type {
   SessionListItem,
   ChatSessionInfo,
   PaginatedChatHistory,
-  Task,
-  CreateTaskInput,
-  UpdateTaskInput,
   ProjectAnalysisResult,
   FileNode,
   TranscriptionResult,
@@ -238,31 +234,6 @@ class WebRTCFileBackend implements IFileBackend {
 }
 
 /**
- * Task backend implementation for WebRTC (remote machine proxy)
- */
-class WebRTCTaskBackend implements ITaskBackend {
-  async create(input: CreateTaskInput): Promise<Task> {
-    return await peerConnection.sendCommand<Task>('create_task', { input });
-  }
-
-  async list(projectId: string): Promise<Task[]> {
-    return await peerConnection.sendCommand<Task[]>('get_tasks', { projectId });
-  }
-
-  async update(taskId: string, updates: UpdateTaskInput): Promise<Task> {
-    return await peerConnection.sendCommand<Task>('update_task', { taskId, updates });
-  }
-
-  async delete(taskId: string): Promise<boolean> {
-    return await peerConnection.sendCommand<boolean>('delete_task', { taskId });
-  }
-
-  async updateStatus(taskId: string, status: string): Promise<Task> {
-    return await peerConnection.sendCommand<Task>('update_task_status', { taskId, status });
-  }
-}
-
-/**
  * Transcription backend implementation for WebRTC (remote machine proxy)
  */
 class WebRTCTranscriptionBackend implements ITranscriptionBackend {
@@ -318,7 +289,6 @@ export class WebRTCBackend implements IBackend {
   readonly agent: IAgentBackend;
   readonly chat: IChatBackend;
   readonly files: IFileBackend;
-  readonly tasks: ITaskBackend;
   readonly transcription: ITranscriptionBackend;
   readonly system: ISystemBackend;
 
@@ -327,7 +297,6 @@ export class WebRTCBackend implements IBackend {
     this.agent = new WebRTCAgentBackend();
     this.chat = new WebRTCChatBackend();
     this.files = new WebRTCFileBackend();
-    this.tasks = new WebRTCTaskBackend();
     this.transcription = new WebRTCTranscriptionBackend();
     this.system = new WebRTCSystemBackend();
   }
