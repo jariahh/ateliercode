@@ -19,8 +19,7 @@ export default function CodeBlock({ language, children, inline }: CodeBlockProps
       const htmlElement = document.documentElement;
       const theme = htmlElement.getAttribute('data-theme');
       // List of dark themes in DaisyUI
-      const darkThemes = ['dark', 'night', 'dracula', 'synthwave', 'forest', 'coffee', 'black'];
-      setIsDark(darkThemes.includes(theme || ''));
+      setIsDark(theme?.includes('dark') || ['night', 'dracula', 'synthwave', 'forest', 'coffee', 'black'].includes(theme || ''));
     };
 
     checkTheme();
