@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Mic, Key, Download, Check, Loader2, AlertCircle, ChevronRight, Globe, Monitor, Wifi, WifiOff, LogIn, UserPlus, Trash2, Pencil, X } from 'lucide-react';
+import { Settings as SettingsIcon, Mic, Key, Download, Check, Loader2, AlertCircle, ChevronRight, Globe, Monitor, Wifi, WifiOff, LogIn, Trash2, Pencil, X } from 'lucide-react';
 import { useSettingsStore, type WhisperModel } from '../stores/settingsStore';
 import { useMachineStore, type MachineInfo } from '../stores/machineStore';
+import { useAuthStore } from '../stores/authStore';
 import { serverConnection } from '../services/serverConnection';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -40,10 +41,7 @@ export default function Settings() {
   // Server connection state
   const [isConnecting, setIsConnecting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
+  const { login: keycloakLogin } = useAuthStore();
 
   // Machine management state
   const [editingMachine, setEditingMachine] = useState<MachineInfo | null>(null);
@@ -142,51 +140,9 @@ export default function Settings() {
     }
   };
 
-  // Authenticate (login or register)
-  const handleAuth = async () => {
-    if (!authEmail || !authPassword) {
-      setServerError('Please enter email and password');
-      return;
-    }
-
-    if (authMode === 'register' && !authUsername) {
-      setServerError('Please enter a username');
-      return;
-    }
-
-    setIsConnecting(true);
-    setServerError(null);
-
-    try {
-      const result = authMode === 'login'
-        ? await serverConnection.login(authEmail, authPassword)
-        : await serverConnection.register(authEmail, authUsername, authPassword);
-
-      if (!result.success) {
-        setServerError(result.error || 'Authentication failed');
-        return;
-      }
-
-      // Auto-register this machine
-      let machineName = server.machineName;
-      if (!machineName) {
-        machineName = await getSystemHostname();
-        setMachineName(machineName);
-      }
-      await serverConnection.registerMachine(machineName);
-
-      const machineList = await serverConnection.listMachines();
-      useMachineStore.getState().setMachines(machineList);
-
-      setAuthEmail('');
-      setAuthUsername('');
-      setAuthPassword('');
-    } catch (err) {
-      console.error('Auth error:', err);
-      setServerError('Authentication failed. Please try again.');
-    } finally {
-      setIsConnecting(false);
-    }
+  // Authenticate via Keycloak OIDC
+  const handleAuth = () => {
+    keycloakLogin();
   };
 
   // Disconnect from server
@@ -370,26 +326,12 @@ export default function Settings() {
                           <Wifi className="w-4 h-4 text-success" />
                           <span className="font-medium">Connected - Sign In Required</span>
                         </div>
-                        <div className="tabs tabs-boxed mb-4 w-fit">
-                          <button className={`tab ${authMode === 'login' ? 'tab-active' : ''}`} onClick={() => setAuthMode('login')}>
-                            <LogIn className="w-4 h-4 mr-1" />Sign In
+                        <div className="flex gap-2">
+                          <button onClick={handleAuth} className="btn btn-primary btn-sm gap-2">
+                            <LogIn className="w-4 h-4" />
+                            Sign In with AtelierCode
                           </button>
-                          <button className={`tab ${authMode === 'register' ? 'tab-active' : ''}`} onClick={() => setAuthMode('register')}>
-                            <UserPlus className="w-4 h-4 mr-1" />Register
-                          </button>
-                        </div>
-                        <div className="space-y-3">
-                          <input type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email" className="input input-bordered input-sm w-full" />
-                          {authMode === 'register' && (
-                            <input type="text" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} placeholder="Username" className="input input-bordered input-sm w-full" />
-                          )}
-                          <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Password" className="input input-bordered input-sm w-full" />
-                          <div className="flex gap-2">
-                            <button onClick={handleAuth} disabled={isConnecting} className="btn btn-primary btn-sm">
-                              {isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : authMode === 'login' ? 'Sign In' : 'Create Account'}
-                            </button>
-                            <button onClick={handleDisconnect} className="btn btn-ghost btn-sm">Disconnect</button>
-                          </div>
+                          <button onClick={handleDisconnect} className="btn btn-ghost btn-sm">Disconnect</button>
                         </div>
                       </>
                     ) : (

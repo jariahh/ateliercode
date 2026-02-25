@@ -19,6 +19,22 @@ function App() {
   // Initialize app based on platform
   useEffect(() => {
     const initApp = async () => {
+      // Handle OIDC callback (Keycloak redirects back with ?code=...)
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      if (code) {
+        // Clean up URL
+        window.history.replaceState({}, '', window.location.pathname);
+        const { handleCallback } = useAuthStore.getState();
+        const success = await handleCallback(code);
+        if (success) {
+          initServerConnection().catch((err) => {
+            console.log('[App] Server connection not available:', err);
+          });
+          return;
+        }
+      }
+
       if (isWeb()) {
         // Web mode: check authentication and show dialog if not authenticated
         const authenticated = await checkAuth();

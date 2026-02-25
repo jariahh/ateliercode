@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { X, LogIn, Loader2, AlertCircle } from 'lucide-react';
+import { LogIn, X, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 
 export default function AuthDialog() {
@@ -7,31 +6,18 @@ export default function AuthDialog() {
     showAuthDialog,
     setShowAuthDialog,
     login,
-    isLoading,
     error,
     setError,
   } = useAuthStore();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = () => {
     setError(null);
-
-    if (!email || !password) {
-      setError('Please enter email and password');
-      return;
-    }
-
-    await login(email, password);
+    login();
   };
 
   const handleClose = () => {
     setShowAuthDialog(false);
     setError(null);
-    setEmail('');
-    setPassword('');
   };
 
   if (!showAuthDialog) return null;
@@ -65,54 +51,13 @@ export default function AuthDialog() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text">Email</span>
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="input input-bordered w-full"
-              disabled={isLoading}
-              autoFocus
-            />
-          </div>
-
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text">Password</span>
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="input input-bordered w-full"
-              disabled={isLoading}
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="btn btn-primary w-full"
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              <>
-                <LogIn className="w-4 h-4" />
-                Sign In
-              </>
-            )}
-          </button>
-        </form>
+        <button
+          onClick={handleLogin}
+          className="btn btn-primary w-full"
+        >
+          <LogIn className="w-4 h-4" />
+          Sign In with AtelierCode
+        </button>
 
         <div className="divider text-xs text-base-content/40">OR</div>
 
@@ -123,18 +68,6 @@ export default function AuthDialog() {
         >
           Continue without signing in
         </button>
-
-        <p className="text-center text-sm text-base-content/60 mt-4">
-          Don't have an account?{' '}
-          <a
-            href="https://ateliercode.dev/signup"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="link link-primary"
-          >
-            Sign up
-          </a>
-        </p>
       </div>
       <div className="modal-backdrop bg-black/50" onClick={handleClose} />
     </div>

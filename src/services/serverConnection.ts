@@ -11,8 +11,6 @@ import { useSettingsStore } from '../stores/settingsStore';
 type WSMessageType =
   | 'auth'
   | 'auth_response'
-  | 'register_user'
-  | 'register_user_response'
   | 'register_machine'
   | 'machine_registered'
   | 'heartbeat'
@@ -41,26 +39,18 @@ interface WSMessage<T = unknown> {
 }
 
 interface AuthPayload {
-  token?: string;
-  email?: string;
-  password?: string;
+  token: string;
 }
 
 interface AuthResponse {
   success: boolean;
-  token?: string;
   user?: {
     id: string;
     email: string;
     username: string;
+    roles: string[];
   };
   error?: string;
-}
-
-interface RegisterUserPayload {
-  email: string;
-  username: string;
-  password: string;
 }
 
 interface MachineCapabilities {
@@ -209,46 +199,12 @@ class ServerConnection {
   }
 
   /**
-   * Authenticate with email/password
-   */
-  async login(email: string, password: string): Promise<AuthResponse> {
-    const response = await this.sendRequest<AuthPayload, AuthResponse>('auth', { email, password });
-    if (response.success && response.token) {
-      this.state = 'authenticated';
-      // Store token for future use
-      useSettingsStore.getState().setServerToken(response.token);
-      this.updateStore();
-    }
-    return response;
-  }
-
-  /**
-   * Authenticate with existing token
+   * Authenticate with Keycloak access token
    */
   async loginWithToken(token: string): Promise<AuthResponse> {
     const response = await this.sendRequest<AuthPayload, AuthResponse>('auth', { token });
     if (response.success) {
       this.state = 'authenticated';
-      this.updateStore();
-    } else {
-      // Token invalid, clear it
-      useSettingsStore.getState().setServerToken('');
-    }
-    return response;
-  }
-
-  /**
-   * Register a new user account
-   */
-  async register(email: string, username: string, password: string): Promise<AuthResponse> {
-    const response = await this.sendRequest<RegisterUserPayload, AuthResponse>('register_user', {
-      email,
-      username,
-      password,
-    });
-    if (response.success && response.token) {
-      this.state = 'authenticated';
-      useSettingsStore.getState().setServerToken(response.token);
       this.updateStore();
     }
     return response;
