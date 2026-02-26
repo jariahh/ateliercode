@@ -1,49 +1,13 @@
-=== Testing docker build for app ===
+=== Step 1: Docker login ===
 
 WARNING! Your credentials are stored unencrypted in '/root/.docker/config.json'.
 Configure a credential helper to remove this warning. See
 https://docs.docker.com/go/credential-store/
 
 Login Succeeded
+Exit code: 0
 
-=== Dockerfile exists? ===
--rw-r--r-- 1 root root 555 Feb 26 15:56 Dockerfile
-
-=== Dockerfile contents ===
-# Build stage
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Copy package files
-COPY package.json package-lock.json* ./
-
-# Install dependencies
-RUN npm install --legacy-peer-deps
-
-# Copy source code
-COPY . .
-
-# Build the web app
-ENV VITE_BUILD_TARGET=web
-RUN npm run build:web
-
-# Production stage
-FROM nginx:alpine
-
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Copy built assets from builder
-COPY --from=builder /app/dist /usr/share/nginx/html
-
-# Expose port 80
-EXPOSE 80
-
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
-
-=== Starting build ===
+=== Step 2: Docker build ===
 #0 building with "default" instance using docker driver
 
 #1 [internal] load build definition from Dockerfile
@@ -51,13 +15,10 @@ CMD ["nginx", "-g", "daemon off;"]
 #1 DONE 0.0s
 
 #2 [internal] load metadata for docker.io/library/node:20-alpine
-#2 ...
+#2 DONE 0.2s
 
 #3 [internal] load metadata for docker.io/library/nginx:alpine
-#3 DONE 0.4s
-
-#2 [internal] load metadata for docker.io/library/node:20-alpine
-#2 DONE 0.4s
+#3 DONE 0.2s
 
 #4 [internal] load .dockerignore
 #4 transferring context: 383B done
@@ -70,7 +31,7 @@ CMD ["nginx", "-g", "daemon off;"]
 #6 DONE 0.0s
 
 #7 [internal] load build context
-#7 transferring context: 2.39MB 0.0s done
+#7 transferring context: 2.38MB 0.0s done
 #7 DONE 0.1s
 
 #8 [builder 2/6] WORKDIR /app
@@ -86,47 +47,47 @@ CMD ["nginx", "-g", "daemon off;"]
 #11 DONE 0.1s
 
 #12 [builder 6/6] RUN npm run build:web
-#12 0.241 
-#12 0.241 > ateliercode@0.1.0 build:web
-#12 0.241 > VITE_BUILD_TARGET=web vite build
-#12 0.241 
-#12 0.397 vite v5.4.21 building for production...
-#12 0.529 [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
-#12 0.642 transforming...
-#12 0.825 
-#12 0.826 🌼   daisyUI 4.12.24
-#12 0.924 ├─ ✔︎ 2 themes added		https://daisyui.com/docs/themes
-#12 0.924 ╰─ ★ Star daisyUI on GitHub	https://github.com/saadeghi/daisyui
-#12 0.924 
-#12 4.075 ✓ 2588 modules transformed.
-#12 4.574 rendering chunks...
-#12 4.778 [plugin:vite:reporter] [plugin vite:reporter] 
-#12 4.778 (!) /app/src/stores/settingsStore.ts is dynamically imported by /app/src/services/webrtcHost.ts but also statically imported by /app/src/components/workspace/ChatTab.tsx, /app/src/pages/Settings.tsx, /app/src/services/peerConnection.ts, /app/src/services/serverConnection.ts, dynamic import will not move module into another chunk.
-#12 4.778 
-#12 4.778 [plugin:vite:reporter] [plugin vite:reporter] 
-#12 4.778 (!) /app/src/services/peerConnection.ts is dynamically imported by /app/src/services/serverConnection.ts, /app/src/services/serverConnection.ts but also statically imported by /app/src/api/agentSession.ts, /app/src/api/agents.ts, /app/src/api/chatTabs.ts, /app/src/api/pluginSettings.ts, /app/src/api/stats.ts, /app/src/components/MachineSelector.tsx, /app/src/components/workspace/ChatTab.tsx, /app/src/services/backend/WebRTCBackend.ts, /app/src/services/backend/index.ts, /app/src/services/sessionWatcherManager.ts, /app/src/services/webrtcHost.ts, dynamic import will not move module into another chunk.
-#12 4.778 
-#12 4.778 [plugin:vite:reporter] [plugin vite:reporter] 
-#12 4.778 (!) /app/src/services/backend/index.ts is dynamically imported by /app/src/services/serverConnection.ts but also statically imported by /app/src/components/MachineSelector.tsx, /app/src/components/workspace/ChatTab.tsx, /app/src/lib/chat.ts, /app/src/pages/ProjectWizard.tsx, /app/src/stores/projectStore.ts, dynamic import will not move module into another chunk.
-#12 4.778 
-#12 4.778 [plugin:vite:reporter] [plugin vite:reporter] 
-#12 4.778 (!) /app/src/stores/projectStore.ts is dynamically imported by /app/src/services/serverConnection.ts but also statically imported by /app/src/components/MachineSelector.tsx, /app/src/components/ProjectSidebar.tsx, /app/src/components/workspace/ChatTab.tsx, /app/src/pages/Home.tsx, /app/src/pages/ProjectWizard.tsx, /app/src/pages/Workspace.tsx, dynamic import will not move module into another chunk.
-#12 4.778 
-#12 4.778 [plugin:vite:reporter] [plugin vite:reporter] 
-#12 4.778 (!) /app/src/stores/authStore.ts is dynamically imported by /app/src/services/serverConnection.ts but also statically imported by /app/src/App.tsx, /app/src/components/AuthDialog.tsx, /app/src/components/MachineSelector.tsx, /app/src/components/ProjectSidebar.tsx, /app/src/pages/Home.tsx, /app/src/pages/Settings.tsx, dynamic import will not move module into another chunk.
-#12 4.778 
-#12 4.800 computing gzip size...
-#12 4.827 dist/index.html                     1.00 kB │ gzip:   0.51 kB
-#12 4.827 dist/assets/index-CiB512lx.css    143.99 kB │ gzip:  21.31 kB
-#12 4.827 dist/assets/ui-LWEZAa8b.js         25.83 kB │ gzip:   4.86 kB
-#12 4.828 dist/assets/vendor-tLQRDKaK.js    160.85 kB │ gzip:  52.55 kB
-#12 4.828 dist/assets/index-BRReTUJe.js   1,059.41 kB │ gzip: 347.02 kB
-#12 4.828 
-#12 4.828 (!) Some chunks are larger than 500 kB after minification. Consider:
-#12 4.828 - Using dynamic import() to code-split the application
-#12 4.828 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
-#12 4.828 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-#12 4.828 ✓ built in 4.21s
+#12 0.224 
+#12 0.224 > ateliercode@0.1.0 build:web
+#12 0.224 > VITE_BUILD_TARGET=web vite build
+#12 0.224 
+#12 0.368 vite v5.4.21 building for production...
+#12 0.488 [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+#12 0.585 transforming...
+#12 0.772 
+#12 0.772 🌼   daisyUI 4.12.24
+#12 0.866 ├─ ✔︎ 2 themes added		https://daisyui.com/docs/themes
+#12 0.866 ╰─ ★ Star daisyUI on GitHub	https://github.com/saadeghi/daisyui
+#12 0.866 
+#12 4.059 ✓ 2588 modules transformed.
+#12 4.582 rendering chunks...
+#12 4.753 [plugin:vite:reporter] [plugin vite:reporter] 
+#12 4.753 (!) /app/src/stores/settingsStore.ts is dynamically imported by /app/src/services/webrtcHost.ts but also statically imported by /app/src/components/workspace/ChatTab.tsx, /app/src/pages/Settings.tsx, /app/src/services/peerConnection.ts, /app/src/services/serverConnection.ts, dynamic import will not move module into another chunk.
+#12 4.753 
+#12 4.753 [plugin:vite:reporter] [plugin vite:reporter] 
+#12 4.753 (!) /app/src/services/peerConnection.ts is dynamically imported by /app/src/services/serverConnection.ts, /app/src/services/serverConnection.ts but also statically imported by /app/src/api/agentSession.ts, /app/src/api/agents.ts, /app/src/api/chatTabs.ts, /app/src/api/pluginSettings.ts, /app/src/api/stats.ts, /app/src/components/MachineSelector.tsx, /app/src/components/workspace/ChatTab.tsx, /app/src/services/backend/WebRTCBackend.ts, /app/src/services/backend/index.ts, /app/src/services/sessionWatcherManager.ts, /app/src/services/webrtcHost.ts, dynamic import will not move module into another chunk.
+#12 4.753 
+#12 4.753 [plugin:vite:reporter] [plugin vite:reporter] 
+#12 4.753 (!) /app/src/services/backend/index.ts is dynamically imported by /app/src/services/serverConnection.ts but also statically imported by /app/src/components/MachineSelector.tsx, /app/src/components/workspace/ChatTab.tsx, /app/src/lib/chat.ts, /app/src/pages/ProjectWizard.tsx, /app/src/stores/projectStore.ts, dynamic import will not move module into another chunk.
+#12 4.753 
+#12 4.753 [plugin:vite:reporter] [plugin vite:reporter] 
+#12 4.753 (!) /app/src/stores/projectStore.ts is dynamically imported by /app/src/services/serverConnection.ts but also statically imported by /app/src/components/MachineSelector.tsx, /app/src/components/ProjectSidebar.tsx, /app/src/components/workspace/ChatTab.tsx, /app/src/pages/Home.tsx, /app/src/pages/ProjectWizard.tsx, /app/src/pages/Workspace.tsx, dynamic import will not move module into another chunk.
+#12 4.753 
+#12 4.753 [plugin:vite:reporter] [plugin vite:reporter] 
+#12 4.753 (!) /app/src/stores/authStore.ts is dynamically imported by /app/src/services/serverConnection.ts but also statically imported by /app/src/App.tsx, /app/src/components/AuthDialog.tsx, /app/src/components/MachineSelector.tsx, /app/src/components/ProjectSidebar.tsx, /app/src/pages/Home.tsx, /app/src/pages/Settings.tsx, dynamic import will not move module into another chunk.
+#12 4.753 
+#12 4.772 computing gzip size...
+#12 4.795 dist/index.html                     1.00 kB │ gzip:   0.51 kB
+#12 4.795 dist/assets/index-CiB512lx.css    143.99 kB │ gzip:  21.31 kB
+#12 4.795 dist/assets/ui-LWEZAa8b.js         25.83 kB │ gzip:   4.86 kB
+#12 4.795 dist/assets/vendor-tLQRDKaK.js    160.85 kB │ gzip:  52.55 kB
+#12 4.795 dist/assets/index-BRReTUJe.js   1,059.41 kB │ gzip: 347.02 kB
+#12 4.795 
+#12 4.795 (!) Some chunks are larger than 500 kB after minification. Consider:
+#12 4.795 - Using dynamic import() to code-split the application
+#12 4.795 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+#12 4.795 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+#12 4.795 ✓ built in 4.41s
 #12 DONE 4.9s
 
 #13 [stage-1 2/3] COPY nginx.conf /etc/nginx/conf.d/default.conf
@@ -138,7 +99,27 @@ CMD ["nginx", "-g", "daemon off;"]
 #15 exporting to image
 #15 exporting layers done
 #15 writing image sha256:250b5417c88be22d62b95cc55ced3ce1c007efe051596ec2ac86b0f925a8d82c done
-#15 naming to git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:test 0.0s done
+#15 naming to git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:3ec7159 done
+#15 naming to git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest done
 #15 DONE 0.0s
+Build exit code: 0
 
-=== Build complete ===
+=== Step 3: Docker push (short sha) ===
+The push refers to repository [git.unveiledsoftwaresolutions.com/jariah/ateliercode-app]
+b4c5a5d2c0a3: Preparing
+f60c2b02a682: Preparing
+da3ac26fdf0f: Preparing
+7b2903554e63: Preparing
+6c0e59fd138a: Preparing
+aa0fc249df10: Preparing
+f35bcec50d8c: Preparing
+660f9a93104f: Preparing
+53998a5033c3: Preparing
+989e799e6349: Preparing
+f35bcec50d8c: Waiting
+aa0fc249df10: Waiting
+989e799e6349: Waiting
+660f9a93104f: Waiting
+53998a5033c3: Waiting
+unauthorized: reqPackageAccess
+
