@@ -1,36 +1,33 @@
-name: Test Runner
+name: Deploy App
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check build tools
-        run: |
-          echo "=== Docker ==="
-          which docker 2>/dev/null && docker --version && echo "HAS_DOCKER" || echo "NO_DOCKER"
-          echo "=== Buildah ==="
-          which buildah 2>/dev/null && buildah --version && echo "HAS_BUILDAH" || echo "NO_BUILDAH"
-          echo "=== Podman ==="
-          which podman 2>/dev/null && podman --version && echo "HAS_PODMAN" || echo "NO_PODMAN"
-          echo "=== Sudo ==="
-          sudo -n true 2>/dev/null && echo "HAS_SUDO" || echo "NO_SUDO"
-          echo "=== Can install docker? ==="
-          which apt-get 2>/dev/null && echo "HAS_APT" || echo "NO_APT"
-          echo "=== Docker socket ==="
-          ls -la /var/run/docker.sock 2>/dev/null && echo "HAS_SOCKET" || echo "NO_SOCKET"
-          echo "=== id ==="
-          id
-          echo "=== uname ==="
-          uname -a
-
-  test-container:
+  deploy:
     runs-on: ubuntu-latest
     container:
       image: catthehacker/ubuntu:act-latest
     steps:
-      - name: Check docker in container
+      - uses: actions/checkout@v4
+
+      - name: Build and push
         run: |
-          which docker 2>/dev/null && docker --version && echo "HAS_DOCKER_IN_CONTAINER" || echo "NO_DOCKER_IN_CONTAINER"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
+          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:$SHORT_SHA -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest .
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:$SHORT_SHA
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest
+
+      - name: Update Helm and push
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          sed -i "s/tag: \".*\"/tag: \"${SHORT_SHA}\"/" helm/values.yaml
+          git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
+          git config --local user.name "forgejo-actions[bot]"
+          git add helm/values.yaml
+          git diff --staged --quiet || git commit -m "chore: update app image tag to ${SHORT_SHA} [skip ci]"
+          git push
