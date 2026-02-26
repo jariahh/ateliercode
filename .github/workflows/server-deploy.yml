@@ -96,3 +96,8 @@ jobs:
             git commit -m "chore: update server image tag to ${GITHUB_SHA::7} [skip ci]"
             git push
           fi
+
+      - name: Push to Forgejo
+        run: |
+          git remote add forgejo https://jariah:${{ secrets.FORGEJO_TOKEN }}@git.unveiledsoftwaresolutions.com/jariah/ateliercode.git
+          git push forgejo master
