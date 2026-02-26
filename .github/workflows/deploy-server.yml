@@ -1,4 +1,4 @@
-name: Build Server Image
+name: Deploy Server
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - 'server/package.json'
       - 'server/Dockerfile'
       - 'server/tsconfig.json'
-      - '.github/workflows/server-deploy.yml'
+      - '.github/workflows/deploy-server.yml'
   workflow_dispatch:
 
 jobs:

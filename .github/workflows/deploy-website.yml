@@ -1,4 +1,4 @@
-name: Build Website Image
+name: Deploy Website
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
       - 'website/vite.config.ts'
       - 'website/Dockerfile'
       - 'website/nginx.conf'
-      - '.github/workflows/website-deploy.yml'
+      - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
 
 jobs:
