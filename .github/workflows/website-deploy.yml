@@ -1,31 +1,29 @@
-name: Build and Deploy
+name: Build Website Image
 
 on:
   push:
     branches:
-      - main
       - master
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-  pull_request:
-    branches:
-      - main
-      - master
+    paths:
+      - 'website/src/**'
+      - 'website/public/**'
+      - 'website/package.json'
+      - 'website/vite.config.ts'
+      - 'website/Dockerfile'
+      - 'website/nginx.conf'
+      - '.github/workflows/website-deploy.yml'
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: jariahh/ateliercode-website
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -38,21 +36,24 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: website/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+        working-directory: website
 
       - name: Run type check
         run: npx tsc --noEmit
+        working-directory: website
 
       - name: Build
         run: npm run build
+        working-directory: website
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -67,54 +68,32 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          context: ./website
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  update-helm:
-    needs: build
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
       - name: Update Helm values with new image tag
         run: |
-          # Get the short SHA
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-
-          # Update ONLY the main image tag (line 13 in values.yaml)
-          # Using line-specific replacement to avoid changing postgresql image tag
-          sed -i '13s/tag: ".*"/tag: "'"${SHORT_SHA}"'"/' helm/values.yaml
-
+          sed -i "s/tag: \".*\"/tag: \"${SHORT_SHA}\"/" website/helm/values.yaml
           echo "Updated image tag to: ${SHORT_SHA}"
-          cat helm/values.yaml | grep -A2 "^image:"
 
       - name: Commit and push changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-
-          # Check if there are changes
-          if git diff --quiet helm/values.yaml; then
+          if git diff --quiet website/helm/values.yaml; then
             echo "No changes to commit"
           else
-            git add helm/values.yaml
-            git commit -m "chore: update image tag to ${GITHUB_SHA::7} [skip ci]"
+            git add website/helm/values.yaml
+            git commit -m "chore: update website image tag to ${GITHUB_SHA::7} [skip ci]"
             git push
           fi

@@ -9,9 +9,9 @@ spec:
   project: default
 
   source:
-    repoURL: https://git.unveiledsoftwaresolutions.com/jariah/ateliercode-server.git
+    repoURL: https://git.unveiledsoftwaresolutions.com/jariah/ateliercode.git
     targetRevision: master
-    path: helm
+    path: server/helm
     helm:
       valueFiles:
         - values.yaml

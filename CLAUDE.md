@@ -145,51 +145,56 @@ AtelierCode has TWO systems for agent integration:
 
 ---
 
-## 🌐 Related Projects
+## 🌐 Monorepo Structure
 
-AtelierCode is a multi-project ecosystem. Here are all the related projects:
+AtelierCode is a monorepo containing all projects:
 
-### Main Application
-- **Location**: `C:\projects\ateliercode` (this project)
-- **Description**: Tauri desktop app + web build for AI coding workspace
-- **Stack**: React + TypeScript + Tauri (Rust backend)
-- **Deploys to**:
-  - Desktop: Windows/Mac/Linux via Tauri
-  - Web: https://app.ateliercode.dev (Docker + ArgoCD)
+```
+ateliercode/
+├── src/                  # Frontend (React + TypeScript)
+├── src-tauri/            # Desktop backend (Rust + Tauri)
+├── helm/                 # App Helm chart
+├── website/              # Marketing site (ateliercode.dev)
+│   ├── src/
+│   ├── helm/
+│   └── Dockerfile
+├── server/               # Auth + signaling server (api.ateliercode.dev)
+│   ├── src/
+│   ├── helm/
+│   └── Dockerfile
+└── .github/workflows/
+    ├── app-deploy.yml      # Main app CI
+    ├── website-deploy.yml  # Website CI
+    └── server-deploy.yml   # Server CI
+```
 
-### Server (Auth + Signaling)
-- **Location**: `C:\projects\ateliercode-server`
-- **Description**: WebSocket server for auth, machine registration, and WebRTC signaling
-- **Stack**: Node.js + TypeScript + PostgreSQL
-- **Deploys to**: https://api.ateliercode.dev (Docker + ArgoCD)
-- **Key Features**:
-  - User authentication (JWT)
-  - Machine registration and status tracking
-  - WebRTC signaling for peer-to-peer connections
-  - STUN/TURN ICE server configuration
+### Deployments
+- **App (web)**: https://app.ateliercode.dev — Docker + ArgoCD
+- **App (desktop)**: Windows/Mac/Linux via Tauri
+- **Server**: https://api.ateliercode.dev — Docker + ArgoCD
+- **Website**: https://ateliercode.dev — Docker + ArgoCD
 
-### Website
-- **Location**: `C:\projects\ateliercode-website`
-- **Description**: Marketing/landing page for AtelierCode
-- **Deploys to**: https://ateliercode.dev
+### Auth
+- **Keycloak OIDC** with PKCE (public client) + JWKS validation (server)
+- Realm: `ateliercode` on keycloak.unveiledsoftwaresolutions.com
 
-### Plugins
+### Plugins (separate repos)
 - **Claude Code Plugin**: `C:\projects\ateliercode-plugin-claude`
-  - Rust dynamic library (.dll)
-  - Wraps Claude Code CLI for integration
-  - Reads sessions from `~/.claude/sessions/`
+  - Rust dynamic library (.dll), reads sessions from `~/.claude/sessions/`
 
 - **Gemini Plugin**: `C:\projects\ateliercode-plugin-gemini`
-  - Rust dynamic library (.dll)
-  - Wraps Gemini CLI for integration
-  - Reads sessions from `~/.gemini/tmp/{project_hash}/chats/`
+  - Rust dynamic library (.dll), reads sessions from `~/.gemini/tmp/{project_hash}/chats/`
 
-### Infrastructure Notes
-- All deployments use Kubernetes via ArgoCD
-- Each project has its own `helm/` directory with charts
-- Docker images pushed to GitHub Container Registry (ghcr.io)
+### Git Remotes
+- **origin**: https://git.unveiledsoftwaresolutions.com/jariah/ateliercode.git (Forgejo, primary)
+- **github**: https://github.com/jariahh/ateliercode.git (backup mirror)
+
+### Infrastructure
+- Kubernetes via ArgoCD on Loft/GKE
+- Docker images on GitHub Container Registry (ghcr.io)
+- Each sub-project has its own `helm/` chart, Dockerfile, and CI workflow
 
 ---
 
-**Last Updated:** 2025-12-15
+**Last Updated:** 2026-02-25
 **Purpose:** Prevent accidental termination of Claude sessions and maintain project context
