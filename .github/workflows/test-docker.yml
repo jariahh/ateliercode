@@ -1,0 +1,32 @@
+name: Test Docker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: catthehacker/ubuntu:act-latest
+    steps:
+      - name: Check environment
+        run: |
+          echo "=== OS ==="
+          cat /etc/os-release || true
+          echo "=== whoami ==="
+          whoami
+          echo "=== Docker CLI ==="
+          which docker && docker --version || echo "NO DOCKER CLI"
+          echo "=== Docker socket ==="
+          ls -la /var/run/docker.sock 2>/dev/null || echo "NO DOCKER SOCKET"
+          echo "=== Docker info ==="
+          docker info 2>&1 || echo "DOCKER INFO FAILED"
+          echo "=== Docker ps ==="
+          docker ps 2>&1 || echo "DOCKER PS FAILED"
+          echo "=== Podman ==="
+          which podman && podman --version || echo "NO PODMAN"
+          echo "=== Buildah ==="
+          which buildah && buildah --version || echo "NO BUILDAH"
+          echo "=== env vars ==="
+          env | grep -i docker || echo "NO DOCKER ENV VARS"
+          env | grep -i container || echo "NO CONTAINER ENV VARS"
