@@ -15,12 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test docker push with permissions
+      - name: Test docker push with REGISTRY_TOKEN
         run: |
           REPORT="ci-diagnostics.txt"
           {
-            echo "=== Docker login ==="
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin 2>&1
+            echo "=== Docker login with REGISTRY_TOKEN ==="
+            echo "${{ secrets.REGISTRY_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u jariah --password-stdin 2>&1
             echo ""
 
             echo "=== Build minimal test image ==="
@@ -45,5 +45,5 @@ jobs:
           git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
           git config --local user.name "forgejo-actions[bot]"
           git add ci-diagnostics.txt
-          git diff --staged --quiet || git commit -m "ci: Push permission test report [skip ci]"
+          git diff --staged --quiet || git commit -m "ci: REGISTRY_TOKEN push test report [skip ci]"
           git push || true

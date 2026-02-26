@@ -34,7 +34,7 @@ jobs:
         if: steps.changes.outputs.skip != 'true'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.REGISTRY_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u jariah --password-stdin
           docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:$SHORT_SHA -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:latest ./website
           docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:$SHORT_SHA
           docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:latest
