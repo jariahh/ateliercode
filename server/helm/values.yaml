@@ -10,7 +10,7 @@ secrets:
 image:
   repository: git.unveiledsoftwaresolutions.com/jariah/ateliercode-server
   pullPolicy: IfNotPresent
-  tag: "1e3211a"
+  tag: "efa5c5b"
 
 imagePullSecrets: []
 nameOverride: ""
