@@ -1,0 +1,96 @@
+/* ===== Hover & interactive states ===== */
+
+/* Nav links */
+.nav-links a:hover {
+  color: var(--text-primary) !important;
+}
+
+/* Theme toggle hover */
+nav button:hover {
+  border-color: var(--border-secondary) !important;
+  background: var(--bg-card-hover) !important;
+}
+
+/* Nav download button hover */
+nav a[href="#download"]:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+/* Hero CTA primary hover */
+section a[href="#download"]:first-of-type:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+/* Hero CTA secondary hover */
+section a[href="https://app.ateliercode.dev"]:hover {
+  border-color: var(--border-secondary) !important;
+  background: var(--bg-card-hover) !important;
+}
+
+/* Feature card hover - accent border */
+.card-hover:hover {
+  border-color: var(--border-accent-hover) !important;
+}
+
+/* Footer link hovers */
+footer a:hover {
+  color: var(--footer-link-hover) !important;
+}
+
+/* Download platform button hover */
+section#download a:hover {
+  border-color: var(--border-accent) !important;
+  background: var(--accent-glow) !important;
+}
+
+/* Pro card trial button hover */
+.card-hover a[href="#download"]:hover {
+  opacity: 0.9;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .nav-links {
+    display: none !important;
+  }
+
+  .mobile-menu-btn {
+    display: flex !important;
+  }
+
+  .mobile-menu {
+    display: flex !important;
+  }
+
+  /* Make hero mock stack vertically on mobile */
+  section > div > div:last-child > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Selection color */
+::selection {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--text-primary);
+}
+
+/* Scrollbar styling (dark-friendly) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

@@ -1,0 +1,43 @@
+# Default values for ateliercode-website
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/jariahh/ateliercode-website
+  pullPolicy: IfNotPresent
+  tag: "0499ad9"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: ateliercode.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ateliercode-website-tls
+      hosts:
+        - ateliercode.dev
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
