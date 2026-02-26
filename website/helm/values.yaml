@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: git.unveiledsoftwaresolutions.com/jariah/ateliercode-website
   pullPolicy: IfNotPresent
-  tag: "0499ad9"
+  tag: "fed9c83"
 
 imagePullSecrets: []
 nameOverride: ""
