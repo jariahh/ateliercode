@@ -3,7 +3,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/jariahh/ateliercode-website
+  repository: git.unveiledsoftwaresolutions.com/jariah/ateliercode-website
   pullPolicy: IfNotPresent
   tag: "0499ad9"
 

@@ -8,7 +8,7 @@ secrets:
   create: false  # We use SealedSecrets in production
 
 image:
-  repository: ghcr.io/jariahh/ateliercode-server
+  repository: git.unveiledsoftwaresolutions.com/jariah/ateliercode-server
   pullPolicy: IfNotPresent
   tag: "1e3211a"
 

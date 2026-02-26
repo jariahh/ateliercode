@@ -13,8 +13,8 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: jariahh/ateliercode-server
+  REGISTRY: git.unveiledsoftwaresolutions.com
+  IMAGE_NAME: jariah/ateliercode-server
 
 jobs:
   build-and-push:
@@ -26,8 +26,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -51,44 +49,31 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Log in to Forgejo Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=
-            type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./server
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
       - name: Update Helm values with new image tag
         run: |
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          # Update ONLY the main image tag (line 13 in values.yaml)
           sed -i '13s/tag: ".*"/tag: "'"${SHORT_SHA}"'"/' server/helm/values.yaml
-          echo "Updated image tag to: ${SHORT_SHA}"
 
       - name: Commit and push changes
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
+          git config --local user.name "forgejo-actions[bot]"
           if git diff --quiet server/helm/values.yaml; then
             echo "No changes to commit"
           else
@@ -96,8 +81,3 @@ jobs:
             git commit -m "chore: update server image tag to ${GITHUB_SHA::7} [skip ci]"
             git push
           fi
-
-      - name: Push to Forgejo
-        run: |
-          git remote add forgejo https://jariah:${{ secrets.FORGEJO_TOKEN }}@git.unveiledsoftwaresolutions.com/jariah/ateliercode.git
-          git push forgejo master

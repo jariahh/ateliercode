@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   app:
-    image: ghcr.io/jariahh/ateliercode-app:latest
+    image: git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest
     container_name: ateliercode-app
     restart: unless-stopped
     ports:

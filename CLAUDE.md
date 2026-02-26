@@ -191,7 +191,7 @@ ateliercode/
 
 ### Infrastructure
 - Kubernetes via ArgoCD on Loft/GKE
-- Docker images on GitHub Container Registry (ghcr.io)
+- Docker images on Forgejo Container Registry (git.unveiledsoftwaresolutions.com)
 - Each sub-project has its own `helm/` chart, Dockerfile, and CI workflow
 
 ---
