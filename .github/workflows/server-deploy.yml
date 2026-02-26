@@ -12,39 +12,26 @@ on:
       - '.github/workflows/server-deploy.yml'
   workflow_dispatch:
 
-env:
-  REGISTRY: git.unveiledsoftwaresolutions.com
-  IMAGE: git.unveiledsoftwaresolutions.com/jariah/ateliercode-server
-
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build and push Docker image
+      - name: Build and push
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
-          docker build -t $IMAGE:$SHORT_SHA -t $IMAGE:latest ./server
-          docker push $IMAGE:$SHORT_SHA
-          docker push $IMAGE:latest
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
+          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-server:$SHORT_SHA -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-server:latest ./server
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-server:$SHORT_SHA
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-server:latest
 
-      - name: Update Helm values
+      - name: Update Helm and push
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           sed -i '13s/tag: ".*"/tag: "'"${SHORT_SHA}"'"/' server/helm/values.yaml
-
-      - name: Commit and push
-        run: |
           git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
           git config --local user.name "forgejo-actions[bot]"
-          if git diff --quiet server/helm/values.yaml; then
-            echo "No changes to commit"
-          else
-            git add server/helm/values.yaml
-            git commit -m "chore: update server image tag to ${GITHUB_SHA::7} [skip ci]"
-            git push
-          fi
+          git add server/helm/values.yaml
+          git diff --staged --quiet || git commit -m "chore: update server image tag to ${SHORT_SHA} [skip ci]"
+          git push

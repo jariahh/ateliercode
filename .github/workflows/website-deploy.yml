@@ -14,39 +14,26 @@ on:
       - '.github/workflows/website-deploy.yml'
   workflow_dispatch:
 
-env:
-  REGISTRY: git.unveiledsoftwaresolutions.com
-  IMAGE: git.unveiledsoftwaresolutions.com/jariah/ateliercode-website
-
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build and push Docker image
+      - name: Build and push
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
-          docker build -t $IMAGE:$SHORT_SHA -t $IMAGE:latest ./website
-          docker push $IMAGE:$SHORT_SHA
-          docker push $IMAGE:latest
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
+          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:$SHORT_SHA -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:latest ./website
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:$SHORT_SHA
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-website:latest
 
-      - name: Update Helm values
+      - name: Update Helm and push
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           sed -i "s/tag: \".*\"/tag: \"${SHORT_SHA}\"/" website/helm/values.yaml
-
-      - name: Commit and push
-        run: |
           git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
           git config --local user.name "forgejo-actions[bot]"
-          if git diff --quiet website/helm/values.yaml; then
-            echo "No changes to commit"
-          else
-            git add website/helm/values.yaml
-            git commit -m "chore: update website image tag to ${GITHUB_SHA::7} [skip ci]"
-            git push
-          fi
+          git add website/helm/values.yaml
+          git diff --staged --quiet || git commit -m "chore: update website image tag to ${SHORT_SHA} [skip ci]"
+          git push
