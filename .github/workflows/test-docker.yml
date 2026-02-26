@@ -11,53 +11,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check environment and write report
+      - name: Test docker build
         run: |
           REPORT="ci-diagnostics.txt"
           {
-            echo "=== OS ==="
-            cat /etc/os-release || true
+            echo "=== Testing docker build for app ==="
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin 2>&1
             echo ""
-            echo "=== whoami ==="
-            whoami
+            echo "=== Dockerfile exists? ==="
+            ls -la Dockerfile 2>&1
             echo ""
-            echo "=== Docker CLI ==="
-            which docker && docker --version || echo "NO DOCKER CLI"
+            echo "=== Dockerfile contents ==="
+            cat Dockerfile 2>&1
             echo ""
-            echo "=== Docker socket ==="
-            ls -la /var/run/docker.sock 2>/dev/null || echo "NO DOCKER SOCKET"
+            echo "=== Starting build ==="
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:test . 2>&1 || echo "BUILD FAILED with exit code $?"
             echo ""
-            echo "=== Docker info ==="
-            docker info 2>&1 || echo "DOCKER INFO FAILED"
-            echo ""
-            echo "=== Docker ps ==="
-            docker ps 2>&1 || echo "DOCKER PS FAILED"
-            echo ""
-            echo "=== Podman ==="
-            which podman && podman --version || echo "NO PODMAN"
-            echo ""
-            echo "=== Buildah ==="
-            which buildah && buildah --version || echo "NO BUILDAH"
-            echo ""
-            echo "=== Docker login test ==="
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin 2>&1 || echo "DOCKER LOGIN FAILED"
-            echo ""
-            echo "=== env vars (docker/container) ==="
-            env | grep -iE 'docker|container|runner' || echo "NO MATCHING ENV VARS"
-            echo ""
-            echo "=== disk space ==="
-            df -h / || true
-            echo ""
-            echo "=== mounted volumes ==="
-            mount | grep docker || echo "NO DOCKER MOUNTS"
+            echo "=== Build complete ==="
           } > "$REPORT" 2>&1
 
           cat "$REPORT"
 
-      - name: Commit diagnostics report
+      - name: Commit report
+        if: always()
         run: |
           git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
           git config --local user.name "forgejo-actions[bot]"
           git add ci-diagnostics.txt
-          git commit -m "ci: Docker diagnostics report [skip ci]"
-          git push
+          git diff --staged --quiet || git commit -m "ci: Docker build test report [skip ci]"
+          git push || true
