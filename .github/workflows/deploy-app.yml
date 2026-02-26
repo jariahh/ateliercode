@@ -7,10 +7,30 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Docker login and build
+      - name: Check build tools
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
-          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:test .
-          echo "Build complete"
+          echo "=== Docker ==="
+          which docker 2>/dev/null && docker --version && echo "HAS_DOCKER" || echo "NO_DOCKER"
+          echo "=== Buildah ==="
+          which buildah 2>/dev/null && buildah --version && echo "HAS_BUILDAH" || echo "NO_BUILDAH"
+          echo "=== Podman ==="
+          which podman 2>/dev/null && podman --version && echo "HAS_PODMAN" || echo "NO_PODMAN"
+          echo "=== Sudo ==="
+          sudo -n true 2>/dev/null && echo "HAS_SUDO" || echo "NO_SUDO"
+          echo "=== Can install docker? ==="
+          which apt-get 2>/dev/null && echo "HAS_APT" || echo "NO_APT"
+          echo "=== Docker socket ==="
+          ls -la /var/run/docker.sock 2>/dev/null && echo "HAS_SOCKET" || echo "NO_SOCKET"
+          echo "=== id ==="
+          id
+          echo "=== uname ==="
+          uname -a
+
+  test-container:
+    runs-on: ubuntu-latest
+    container:
+      image: catthehacker/ubuntu:act-latest
+    steps:
+      - name: Check docker in container
+        run: |
+          which docker 2>/dev/null && docker --version && echo "HAS_DOCKER_IN_CONTAINER" || echo "NO_DOCKER_IN_CONTAINER"
