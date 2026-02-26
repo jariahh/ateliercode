@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build
+      - name: Build image
         run: |
           echo "Checkout worked"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
