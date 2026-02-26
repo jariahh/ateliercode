@@ -9,7 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Hello
+      - name: Docker login and build
         run: |
-          echo "Checkout worked!"
-          ls -la
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
+          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:test .
+          echo "Build complete"
