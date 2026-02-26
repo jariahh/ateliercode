@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Your studio for AI-assisted development"
 authors = ["Jariah"]
 license = "MIT"
-repository = "https://github.com/jariahh/ateliercode"
+repository = "https://git.unveiledsoftwaresolutions.com/jariah/ateliercode"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

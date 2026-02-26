@@ -276,7 +276,7 @@ impl AIPlugin for OpenAIPlugin {
     }
 
     async fn chat_completion(&self, _messages: Vec<ChatMessage>) -> Result<String, String> {
-        Err("OpenAI plugin not yet implemented. Please contribute at github.com/jariahh/ateliercode".to_string())
+        Err("OpenAI plugin not yet implemented. Please contribute at git.unveiledsoftwaresolutions.com/jariah/ateliercode".to_string())
     }
 }
 
@@ -307,7 +307,7 @@ impl AIPlugin for GeminiPlugin {
     }
 
     async fn chat_completion(&self, _messages: Vec<ChatMessage>) -> Result<String, String> {
-        Err("Gemini plugin not yet implemented. Please contribute at github.com/jariahh/ateliercode".to_string())
+        Err("Gemini plugin not yet implemented. Please contribute at git.unveiledsoftwaresolutions.com/jariah/ateliercode".to_string())
     }
 }
 

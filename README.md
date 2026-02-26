@@ -202,6 +202,6 @@ We believe AI coding agents will transform software development, but only if the
 
 ---
 
-Made with ❤️ by [Jariah](https://github.com/jariahh)
+Made with ❤️ by [Jariah](https://git.unveiledsoftwaresolutions.com/jariah)
 
 ⭐ **Star this repo** if you're excited about better UX for AI coding tools!
