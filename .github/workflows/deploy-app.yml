@@ -1,11 +1,47 @@
 name: Deploy App
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Hello
-        run: echo "deploy-app works without paths filter"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for relevant changes
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- src/ public/ package.json vite.config.ts Dockerfile nginx.conf .github/workflows/deploy-app.yml 2>/dev/null || echo "FORCE")
+          if [ -z "$CHANGED" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No relevant changes, skipping build"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Changes detected: $CHANGED"
+          fi
+
+      - name: Build and push
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
+          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:$SHORT_SHA -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest .
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:$SHORT_SHA
+          docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest
+
+      - name: Update Helm and push
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          sed -i "s/tag: \".*\"/tag: \"${SHORT_SHA}\"/" helm/values.yaml
+          git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
+          git config --local user.name "forgejo-actions[bot]"
+          git add helm/values.yaml
+          git diff --staged --quiet || git commit -m "chore: update app image tag to ${SHORT_SHA} [skip ci]"
+          git push

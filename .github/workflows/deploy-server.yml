@@ -4,12 +4,6 @@ on:
   push:
     branches:
       - master
-    paths:
-      - 'server/src/**'
-      - 'server/package.json'
-      - 'server/Dockerfile'
-      - 'server/tsconfig.json'
-      - '.github/workflows/deploy-server.yml'
   workflow_dispatch:
 
 jobs:
@@ -17,8 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for relevant changes
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- server/ .github/workflows/deploy-server.yml 2>/dev/null || echo "FORCE")
+          if [ -z "$CHANGED" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No relevant changes, skipping build"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Changes detected: $CHANGED"
+          fi
 
       - name: Build and push
+        if: steps.changes.outputs.skip != 'true'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
@@ -27,6 +36,7 @@ jobs:
           docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-server:latest
 
       - name: Update Helm and push
+        if: steps.changes.outputs.skip != 'true'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           sed -i '13s/tag: ".*"/tag: "'"${SHORT_SHA}"'"/' server/helm/values.yaml
