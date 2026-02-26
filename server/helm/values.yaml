@@ -1,0 +1,86 @@
+# Default values for ateliercode-server
+
+replicaCount: 1
+
+# Secret management
+# Set to false if using SealedSecrets or external-secrets-operator
+secrets:
+  create: false  # We use SealedSecrets in production
+
+image:
+  repository: ghcr.io/jariahh/ateliercode-server
+  pullPolicy: IfNotPresent
+  tag: "1e3211a"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: api.ateliercode.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ateliercode-server-tls
+      hosts:
+        - api.ateliercode.dev
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Environment configuration
+config:
+  # Keycloak OIDC configuration
+  keycloakUrl: "https://keycloak.unveiledsoftwaresolutions.com"
+  keycloakRealm: "ateliercode"
+  keycloakClientId: "ateliercode-server"
+
+  # Database connection
+  databaseUrl: ""
+
+  # CORS - allowed origins (comma-separated)
+  allowedOrigins: "https://ateliercode.dev,https://app.ateliercode.dev,http://localhost:1420,tauri://localhost"
+
+  # TURN/STUN servers (uses existing COTURN from RCMS)
+  stunServers: "stun:app.rcmedicalspecialist.com:3478,stun:stun.l.google.com:19302"
+  turnUrl: "turn:app.rcmedicalspecialist.com:3478"
+  turnTcpUrl: "turn:app.rcmedicalspecialist.com:3478?transport=tcp"
+  turnsUrl: "turns:app.rcmedicalspecialist.com:443"
+  turnUsername: "rcms"
+  # turnCredential - set via sealed secret
+
+# PostgreSQL subchart
+postgresql:
+  enabled: true
+  auth:
+    username: ateliercode
+    database: ateliercode
+    password: ""
+    postgresPassword: ""
+  image:
+    registry: docker.io
+    repository: bitnamisecure/postgresql
+    tag: "latest"
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

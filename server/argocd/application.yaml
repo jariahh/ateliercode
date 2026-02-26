@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ateliercode-server
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://git.unveiledsoftwaresolutions.com/jariah/ateliercode-server.git
+    targetRevision: master
+    path: helm
+    helm:
+      valueFiles:
+        - values.yaml
+      # Override values that need secrets (set via SealedSecrets separately)
+      values: |
+        imagePullSecrets:
+          - name: ghcr-pull-secret
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
