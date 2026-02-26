@@ -1,0 +1,131 @@
+=== OS ===
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.4 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+
+=== whoami ===
+root
+
+=== Docker CLI ===
+/usr/bin/docker
+Docker version 29.2.1-1, build a5c7197d720daef7d8b9e6174ee78c0743cea166
+
+=== Docker socket ===
+NO DOCKER SOCKET
+
+=== Docker info ===
+Client:
+ Version:    29.2.1-1
+ Context:    default
+ Debug Mode: false
+ Plugins:
+  buildx: Docker Buildx (Docker Inc.)
+    Version:  0.31.1-1
+    Path:     /usr/libexec/docker/cli-plugins/docker-buildx
+  compose: Docker Compose (Docker Inc.)
+    Version:  5.0.2-1
+    Path:     /usr/libexec/docker/cli-plugins/docker-compose
+
+Server:
+ Containers: 1
+  Running: 1
+  Paused: 0
+  Stopped: 0
+ Images: 12
+ Server Version: 27.5.1
+ Storage Driver: overlay2
+  Backing Filesystem: extfs
+  Supports d_type: true
+  Using metacopy: false
+  Native Overlay Diff: true
+  userxattr: false
+ Logging Driver: json-file
+ Cgroup Driver: cgroupfs
+ Cgroup Version: 2
+ Plugins:
+  Volume: local
+  Network: bridge host ipvlan macvlan null overlay
+  Log: awslogs fluentd gcplogs gelf journald json-file local splunk syslog
+ Swarm: inactive
+ Runtimes: io.containerd.runc.v2 runc
+ Default Runtime: runc
+ Init Binary: docker-init
+ containerd version: bcc810d6b9066471b0b6fa75f557a15a1cbf31bb
+ runc version: v1.2.4-0-g6c52b3f
+ init version: de40ad0
+ Security Options:
+  apparmor
+  seccomp
+   Profile: builtin
+  cgroupns
+ Kernel Version: 6.8.0-100-generic
+ Operating System: Alpine Linux v3.21 (containerized)
+ OSType: linux
+ Architecture: x86_64
+ CPUs: 16
+ Total Memory: 31.26GiB
+ Name: forgejo-runner-6b9544f99-plgnd
+ ID: 8afe639d-12aa-4fa4-98d6-62583c5f673b
+ Docker Root Dir: /var/lib/docker
+ Debug Mode: false
+ Experimental: false
+ Insecure Registries:
+  127.0.0.0/8
+ Live Restore Enabled: false
+ Product License: Community Engine
+
+[DEPRECATION NOTICE]: API is accessible on http://0.0.0.0:2375 without encryption.
+         Access to the remote API is equivalent to root access on the host. Refer
+         to the 'Docker daemon attack surface' section in the documentation for
+         more information: https://docs.docker.com/go/attack-surface/
+In future versions this will be a hard failure preventing the daemon from starting! Learn more at: https://docs.docker.com/go/api-security/
+
+=== Docker ps ===
+CONTAINER ID   IMAGE                            COMMAND               CREATED         STATUS        PORTS     NAMES
+9ddccdb19182   catthehacker/ubuntu:act-latest   "tail -f /dev/null"   2 seconds ago   Up 1 second             FORGEJO-ACTIONS-TASK-232_WORKFLOW-Test-Docker_JOB-test
+
+=== Podman ===
+NO PODMAN
+
+=== Buildah ===
+NO BUILDAH
+
+=== Docker login test ===
+
+WARNING! Your credentials are stored unencrypted in '/root/.docker/config.json'.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/go/credential-store/
+
+Login Succeeded
+
+=== env vars (docker/container) ===
+DEPLOYMENT_BASEPATH=/opt/runner
+HOSTNAME=forgejo-runner-6b9544f99-plgnd
+RUNNER_TEMP=/tmp
+RUNNER_OS=Linux
+RUNNER_USER=root
+GITHUB_WORKFLOW=Test Docker
+RUNNER_TOOL_CACHE=/opt/hostedtoolcache
+RUNNER_TRACKING_ID=
+GITEA_ACTIONS_RUNNER_VERSION=v6.3.1
+RUNNER_ARCH=X64
+JOB_CONTAINER_NAME=FORGEJO-ACTIONS-TASK-232_WORKFLOW-Test-Docker_JOB-test
+RUNNER_PERFLOG=/dev/null
+DOCKER_HOST=tcp://localhost:2375
+
+=== disk space ===
+Filesystem      Size  Used Avail Use% Mounted on
+overlay          98G   57G   37G  61% /
+
+=== mounted volumes ===
+overlay on / type overlay (rw,relatime,lowerdir=/var/lib/docker/overlay2/l/VCFZO6ZQ2PYYR7J6AYXWAOXL3T:/var/lib/docker/overlay2/l/NPHUEO2JHWPY5MTDHCEX2YFFNO:/var/lib/docker/overlay2/l/C5PRTIBONBG4P42YAFMQBUDN53:/var/lib/docker/overlay2/l/XCR7IZRFMB4OKMRT4JWKODO6CY:/var/lib/docker/overlay2/l/53ZISLPGU6NMWZL57AQYBIIEIL:/var/lib/docker/overlay2/l/BMCEDIAR4V4WQMRM36O7B6DLNC:/var/lib/docker/overlay2/l/DWZ2LVSN5JSGOSYTCHTYTPVNNF,upperdir=/var/lib/docker/overlay2/ed0a18be52f439e2c8abf3a3c9a5cb54b20bdc5580e3cd8ba1cde04f39a0f0ad/diff,workdir=/var/lib/docker/overlay2/ed0a18be52f439e2c8abf3a3c9a5cb54b20bdc5580e3cd8ba1cde04f39a0f0ad/work,nouserxattr)
