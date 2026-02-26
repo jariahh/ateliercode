@@ -3,7 +3,7 @@ replicaCount: 1
 image:
   repository: git.unveiledsoftwaresolutions.com/jariah/ateliercode-app
   pullPolicy: Always
-  tag: "189e305"
+  tag: "6261c27"
 
 imagePullSecrets: []
 
