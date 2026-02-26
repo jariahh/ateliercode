@@ -10,34 +10,70 @@ jobs:
       image: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-      - name: Test docker build
+      - name: Test full deploy pipeline
         run: |
           REPORT="ci-diagnostics.txt"
           {
-            echo "=== Testing docker build for app ==="
+            echo "=== Step 1: Docker login ==="
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin 2>&1
+            echo "Exit code: $?"
             echo ""
-            echo "=== Dockerfile exists? ==="
-            ls -la Dockerfile 2>&1
-            echo ""
-            echo "=== Dockerfile contents ==="
-            cat Dockerfile 2>&1
-            echo ""
-            echo "=== Starting build ==="
+
+            echo "=== Step 2: Docker build ==="
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:test . 2>&1 || echo "BUILD FAILED with exit code $?"
+            docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:${SHORT_SHA} -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest . 2>&1
+            echo "Build exit code: $?"
             echo ""
-            echo "=== Build complete ==="
+
+            echo "=== Step 3: Docker push (short sha) ==="
+            docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:${SHORT_SHA} 2>&1
+            echo "Push exit code: $?"
+            echo ""
+
+            echo "=== Step 4: Docker push (latest) ==="
+            docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest 2>&1
+            echo "Push exit code: $?"
+            echo ""
+
+            echo "=== Step 5: Git diff check ==="
+            CHANGED=$(git diff --name-only HEAD~1 HEAD -- .github/workflows/ 2>/dev/null || echo "FORCE")
+            echo "Changed files: $CHANGED"
+            echo ""
+
+            echo "=== Step 6: Sed test ==="
+            cat helm/values.yaml | head -20
+            echo "---"
+            sed -i "s/tag: \".*\"/tag: \"${SHORT_SHA}\"/" helm/values.yaml 2>&1
+            echo "Sed exit code: $?"
+            cat helm/values.yaml | head -20
+            echo ""
+
+            echo "=== Step 7: Git commit test ==="
+            git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
+            git config --local user.name "forgejo-actions[bot]"
+            git add helm/values.yaml
+            git diff --staged --quiet && echo "No changes to commit" || git commit -m "ci: test helm update [skip ci]" 2>&1
+            echo "Commit exit code: $?"
+            echo ""
+
+            echo "=== Step 8: Git push test ==="
+            git push 2>&1
+            echo "Push exit code: $?"
+            echo ""
+
+            echo "=== DONE ==="
           } > "$REPORT" 2>&1
 
           cat "$REPORT"
 
-      - name: Commit report
+      - name: Commit report (if push failed above)
         if: always()
         run: |
           git config --local user.email "forgejo-actions[bot]@unveiledsoftwaresolutions.com"
           git config --local user.name "forgejo-actions[bot]"
-          git add ci-diagnostics.txt
-          git diff --staged --quiet || git commit -m "ci: Docker build test report [skip ci]"
+          git add ci-diagnostics.txt || true
+          git diff --staged --quiet || git commit -m "ci: Full pipeline test report [skip ci]"
           git push || true
