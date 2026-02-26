@@ -7,5 +7,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Hello
-        run: echo "This is deploy-app.yml with test-runner content"
+        run: |
+          echo "Checkout worked!"
+          ls -la
