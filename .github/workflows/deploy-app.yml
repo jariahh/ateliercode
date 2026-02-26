@@ -6,6 +6,10 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -13,8 +17,21 @@ jobs:
       image: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for relevant changes
+        id: changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- src/ src-tauri/ package.json package-lock.json Dockerfile nginx.conf vite.config.ts index.html .github/workflows/deploy-app.yml 2>/dev/null || echo "FORCE")
+          if [ -z "$CHANGED" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build and push
+        if: steps.changes.outputs.skip != 'true'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
@@ -23,6 +40,7 @@ jobs:
           docker push git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:latest
 
       - name: Update Helm and push
+        if: steps.changes.outputs.skip != 'true'
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           sed -i "s/tag: \".*\"/tag: \"${SHORT_SHA}\"/" helm/values.yaml
