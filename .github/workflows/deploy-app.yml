@@ -1,17 +1,11 @@
-name: Deploy App
+name: Test Runner
 
 on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Build image
-        run: |
-          echo "Checkout worked"
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login git.unveiledsoftwaresolutions.com -u ${{ github.actor }} --password-stdin
-          docker build -t git.unveiledsoftwaresolutions.com/jariah/ateliercode-app:test .
-          echo "Build complete"
+      - name: Hello
+        run: echo "This is deploy-app.yml with test-runner content"
